@@ -250,7 +250,7 @@
       readiness: "",
       steps: ""
     });
-    const [expandedMetric, setExpandedMetric] = useState({});
+    const [expandedMetricKey, setExpandedMetricKey] = useState(null);
     const [dailyEditing, setDailyEditing] = useState(null);
     const [dailyConfirmDelete, setDailyConfirmDelete] = useState(null);
     const [pendingDailyOverwrite, setPendingDailyOverwrite] = useState(null);
@@ -453,8 +453,8 @@
         def: m,
         stats: computeMetricStats(m.key),
         series: getMetricSeries(m.key),
-        expanded: expandedMetric[m.key] === true,
-        onToggle: () => setExpandedMetric((prev) => ({ ...prev, [m.key]: prev[m.key] !== true })),
+        expanded: expandedMetricKey === m.key,
+        onToggle: () => setExpandedMetricKey((prev) => prev === m.key ? null : m.key),
         dailyEditing,
         setDailyEditing,
         dailyConfirmDelete,
