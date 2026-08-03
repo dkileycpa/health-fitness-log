@@ -173,7 +173,6 @@
     Timer,
     ListChecks,
     RotateCcw,
-    Clock,
     TrendingUp,
     Settings,
     HeartPulse
@@ -228,9 +227,6 @@
   }
   function fmtDateShort(ts) {
     return new Date(ts).toLocaleDateString(void 0, { month: "short", day: "numeric" });
-  }
-  function fmtDate(ts) {
-    return new Date(ts).toLocaleDateString(void 0, { month: "short", day: "numeric", year: "numeric" });
   }
   function fmtTime(ts) {
     return new Date(ts).toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" });
@@ -352,7 +348,6 @@
     const [dailyEditing, setDailyEditing] = useState(null);
     const [dailyConfirmDelete, setDailyConfirmDelete] = useState(null);
     const [pendingDailyOverwrite, setPendingDailyOverwrite] = useState(null);
-    const [historyOpenDates, setHistoryOpenDates] = useState({});
     const [trendExerciseIds, setTrendExerciseIds] = useState(null);
     const [confirmDelete, setConfirmDelete] = useState(null);
     const [editingEntry, setEditingEntry] = useState(null);
@@ -923,26 +918,6 @@ Start: ${start}  Finish: ${finish}`;
         applyMorningDate,
         applyNutritionDate
       }
-    ), view === "history" && /* @__PURE__ */ React.createElement(
-      HistoryView,
-      {
-        routines,
-        entries,
-        findExercise,
-        historyOpenDates,
-        setHistoryOpenDates,
-        deleteEntry,
-        confirmDelete,
-        setConfirmDelete,
-        editingEntry,
-        setEditingEntry,
-        saveEditedEntry,
-        buildWorkoutSummary,
-        copySummary,
-        copiedFlash,
-        sessionOverrides,
-        setSessionOverrideField
-      }
     ), view === "trends" && /* @__PURE__ */ React.createElement(TrendsView, { routines, allExercises, trendExerciseIds, setTrendExerciseIds, getExerciseEntries }), view === "manage" && /* @__PURE__ */ React.createElement(
       ManageView,
       {
@@ -969,15 +944,14 @@ Start: ${start}  Finish: ${finish}`;
         setExpandedRoutine,
         loadAllData: loadData
       }
-    )), /* @__PURE__ */ React.createElement("nav", { className: "fixed bottom-0 inset-x-0 bg-neutral-950 border-t border-neutral-800 flex justify-around py-2", style: { maxWidth: 448, margin: "0 auto" } }, [
+    )), /* @__PURE__ */ React.createElement("nav", { className: "fixed bottom-0 inset-x-0 bg-neutral-950 border-t border-neutral-800 flex py-2", style: { maxWidth: 448, margin: "0 auto" } }, [
       { id: "log", label: "Log", Icon: ListChecks },
       { id: "daily", label: "Daily", Icon: HeartPulse },
-      { id: "history", label: "History", Icon: Clock },
       { id: "trends", label: "Trends", Icon: TrendingUp },
       { id: "manage", label: "Manage", Icon: Settings }
     ].map((tab) => {
       const active = view === tab.id;
-      return /* @__PURE__ */ React.createElement("button", { key: tab.id, onClick: () => setView(tab.id), className: "flex flex-col items-center gap-0.5 px-2 py-1", style: { color: active ? "#f97316" : "#737373" } }, /* @__PURE__ */ React.createElement(tab.Icon, { size: 19 }), /* @__PURE__ */ React.createElement("span", { className: "text-[10px] font-medium" }, tab.label));
+      return /* @__PURE__ */ React.createElement("button", { key: tab.id, onClick: () => setView(tab.id), className: "flex-1 flex flex-col items-center gap-0.5 py-1", style: { color: active ? "#f97316" : "#737373" } }, /* @__PURE__ */ React.createElement(tab.Icon, { size: 19 }), /* @__PURE__ */ React.createElement("span", { className: "text-[10px] font-medium" }, tab.label));
     })));
   }
   function StatBox({ label, value, accent }) {
@@ -1226,59 +1200,6 @@ Start: ${start}  Finish: ${finish}`;
       return /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 bg-neutral-900 border border-orange-500 rounded-lg px-2.5 py-2 flex-wrap", style: { borderWidth: 1 } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: editDate, onChange: (e) => setEditDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-1.5 py-1 text-xs text-neutral-200", style: { width: 112 } }), /* @__PURE__ */ React.createElement("input", { type: isSleep ? "text" : "number", placeholder: isSleep ? "h:mm" : void 0, value: val, onChange: (e) => setVal(e.target.value), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-50", style: { minWidth: 64 } }), /* @__PURE__ */ React.createElement("button", { onClick: () => onSave(isSleep ? parseSleepInput(val) : parseFloat(val), editDate), className: "text-emerald-400 p-1" }, /* @__PURE__ */ React.createElement(Check, { size: 15 })), /* @__PURE__ */ React.createElement("button", { onClick: onCancelEdit, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(X, { size: 15 })));
     }
     return /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-400", style: { width: 60, flexShrink: 0 } }, fmtDateShort(dateToTs(date))), /* @__PURE__ */ React.createElement("span", { className: "font-mono font-semibold text-neutral-50" }, isSleep ? formatSleepHours(value) : `${value.toFixed(def.decimals)}${def.unit}`), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-1 shrink-0" }, isConfirming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: onConfirmDelete, className: "text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md" }, "Delete"), /* @__PURE__ */ React.createElement("button", { onClick: onCancelDelete, className: "text-neutral-400 text-xs px-2 py-1 bg-neutral-800 rounded-md" }, "Cancel")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: onEdit, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), /* @__PURE__ */ React.createElement("button", { onClick: onDelete, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 })))));
-  }
-  function HistoryView(props) {
-    const {
-      routines,
-      entries,
-      findExercise,
-      historyOpenDates,
-      setHistoryOpenDates,
-      deleteEntry,
-      confirmDelete,
-      setConfirmDelete,
-      editingEntry,
-      setEditingEntry,
-      saveEditedEntry,
-      buildWorkoutSummary,
-      copySummary,
-      copiedFlash,
-      sessionOverrides,
-      setSessionOverrideField
-    } = props;
-    const grouped = useMemo(() => {
-      const map = {};
-      for (const e of entries) {
-        const key = new Date(e.timestamp).toDateString();
-        if (!map[key]) map[key] = [];
-        map[key].push(e);
-      }
-      return Object.entries(map).map(([key, es]) => ({ key, entries: es.sort((a, b) => b.timestamp - a.timestamp) })).sort((a, b) => b.entries[0].timestamp - a.entries[0].timestamp);
-    }, [entries]);
-    if (grouped.length === 0) return /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm" }, "No sets logged yet. Sets you log will show up here, grouped by day.");
-    return /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, grouped.map(({ key, entries: dayEntries }) => {
-      const open = historyOpenDates[key] !== false;
-      const byRoutine = {};
-      for (const e of dayEntries) {
-        if (!byRoutine[e.routineId]) byRoutine[e.routineId] = [];
-        byRoutine[e.routineId].push(e);
-      }
-      return /* @__PURE__ */ React.createElement("div", { key, className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setHistoryOpenDates((prev) => ({ ...prev, [key]: !open })) }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, fmtDate(dayEntries[0].timestamp)), /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500 text-xs" }, dayEntries.length, " sets")), open && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4 space-y-4" }, Object.entries(byRoutine).map(([routineId, routineEntries]) => {
-        const routine = routines.find((r) => r.id === routineId);
-        const summaryKey = `hist-${key}-${routineId}`;
-        const overrideKey = `${key}|${routineId}`;
-        const override = sessionOverrides[overrideKey] || {};
-        const sortedEntries = [...routineEntries].sort((a, b) => a.timestamp - b.timestamp);
-        const defaultStartInput = tsToInputTime(sortedEntries[0].timestamp);
-        const defaultFinishInput = tsToInputTime(sortedEntries[sortedEntries.length - 1].timestamp);
-        const startDisplay = override.start ? inputTimeTo12h(override.start) : null;
-        const finishDisplay = override.finish ? inputTimeTo12h(override.finish) : null;
-        return /* @__PURE__ */ React.createElement("div", { key: routineId }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-sm font-semibold text-neutral-200" }, routine ? routine.name : "Deleted routine"), /* @__PURE__ */ React.createElement("button", { onClick: () => copySummary(summaryKey, routine, routineEntries, startDisplay, finishDisplay), className: "text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-500 text-neutral-950" }, copiedFlash === summaryKey ? "Copied!" : "Copy summary")), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 mb-2" }, /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-1.5 text-xs text-neutral-400" }, "Start", /* @__PURE__ */ React.createElement("input", { type: "time", value: override.start || defaultStartInput, onChange: (e) => setSessionOverrideField(overrideKey, "start", e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-1.5 py-1 text-xs text-neutral-200" })), /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-1.5 text-xs text-neutral-400" }, "Finish", /* @__PURE__ */ React.createElement("input", { type: "time", value: override.finish || defaultFinishInput, onChange: (e) => setSessionOverrideField(overrideKey, "finish", e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-1.5 py-1 text-xs text-neutral-200" }))), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, routineEntries.map((e) => {
-          const ex = findExercise(e.exerciseId);
-          return /* @__PURE__ */ React.createElement("div", { key: e.id }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-neutral-500 mt-2 mb-1" }, ex ? ex.name : "Deleted exercise"), /* @__PURE__ */ React.createElement(EntryRow, { entry: e, unit: (ex == null ? void 0 : ex.unit) || "seconds", onEdit: () => setEditingEntry(e.id), onDelete: () => setConfirmDelete(e.id), confirming: confirmDelete === e.id, onConfirmDelete: () => deleteEntry(e.id), onCancelDelete: () => setConfirmDelete(null), editing: editingEntry === e.id, onSaveEdit: (patch) => saveEditedEntry(e.id, patch), onCancelEdit: () => setEditingEntry(null) }));
-        })));
-      })));
-    }));
   }
   function TrendsView({ routines, allExercises, trendExerciseIds, setTrendExerciseIds, getExerciseEntries }) {
     if (allExercises.length === 0) return /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm" }, "Add exercises and log a few sets to see trends.");
