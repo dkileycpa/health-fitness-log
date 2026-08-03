@@ -3,133 +3,1361 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>X3LOG — OAuth Test</title>
+<title>X3LOG</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <style>
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #0a0a0a;
-    color: #fafafa;
-    max-width: 480px;
-    margin: 0 auto;
-    padding: 24px 16px;
+  /* Minimal hand-rolled utility set replacing the Tailwind Play CDN (removed — it injects
+     scripts at runtime and was conflicting with Babel standalone). */
+  * { box-sizing: border-box; }
+  .flex { display: flex; }
+  .flex-1 { flex: 1 1 0%; }
+  .flex-col { flex-direction: column; }
+  .grid { display: grid; }
+  .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .items-center { align-items: center; }
+  .justify-between { justify-content: space-between; }
+  .justify-center { justify-content: center; }
+  .text-left { text-align: left; }
+  .gap-1 { gap: .25rem; }
+  .gap-2 { gap: .5rem; }
+  .gap-1\.5 { gap: .375rem; }
+  .gap-3 { gap: .75rem; }
+  .border-black\/20 { border-color: rgba(0,0,0,.2); }
+  .border-black\/30 { border-color: rgba(0,0,0,.3); }
+  .flex-wrap { flex-wrap: wrap; }
+  .space-y-1\.5 > * + * { margin-top: .375rem; }
+  .space-y-4 > * + * { margin-top: 1rem; }
+  .rounded-lg { border-radius: .5rem; }
+  .rounded-md { border-radius: .375rem; }
+  .rounded-2xl { border-radius: 1rem; }
+  .rounded-full { border-radius: 9999px; }
+  .border { border-width: 1px; border-style: solid; border-color: #262626; }
+  .border-2 { border-width: 2px; border-style: solid; }
+  .border-neutral-800 { border-color: #262626; }
+  .border-orange-500 { border-color: #f97316; }
+  .border-orange-500\/50 { border-color: rgba(249,115,22,.5); }
+  .font-bold { font-weight: 700; }
+  .font-semibold { font-weight: 600; }
+  .text-xs { font-size: .75rem; line-height: 1rem; }
+  .text-sm { font-size: .875rem; line-height: 1.25rem; }
+  .text-xl { font-size: 1.25rem; line-height: 1.75rem; }
+  .text-\[10px\] { font-size: 10px; }
+  .text-\[11px\] { font-size: 11px; }
+  .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .uppercase { text-transform: uppercase; }
+  .line-through { text-decoration: line-through; }
+  .whitespace-pre-wrap { white-space: pre-wrap; }
+  .overflow-hidden { overflow: hidden; }
+  .overflow-x-auto { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .shrink-0 { flex-shrink: 0; }
+  .opacity-30 { opacity: .3; }
+  .w-10 { width: 2.5rem; }
+  .w-full { width: 100%; }
+  .h-10 { height: 2.5rem; }
+  .max-w-md { max-width: 28rem; }
+  .min-w-0 { min-width: 0px; }
+  .mx-auto { margin-left: auto; margin-right: auto; }
+  .mb-2 { margin-bottom: .5rem; }
+  .mb-4 { margin-bottom: 1rem; }
+  .mt-3 { margin-top: .75rem; }
+  .mt-4 { margin-top: 1rem; }
+  .pb-16 { padding-bottom: 4rem; }
+  .p-1 { padding: .25rem; }
+  .p-1\.5 { padding: .375rem; }
+  .p-4 { padding: 1rem; }
+  .p-6 { padding: 1.5rem; }
+  .px-1\.5 { padding-left: .375rem; padding-right: .375rem; }
+  .px-2 { padding-left: .5rem; padding-right: .5rem; }
+  .px-3 { padding-left: .75rem; padding-right: .75rem; }
+  .px-4 { padding-left: 1rem; padding-right: 1rem; }
+  .py-1 { padding-top: .25rem; padding-bottom: .25rem; }
+  .py-2 { padding-top: .5rem; padding-bottom: .5rem; }
+  .py-2\.5 { padding-top: .625rem; padding-bottom: .625rem; }
+  .py-3 { padding-top: .75rem; padding-bottom: .75rem; }
+  .bg-neutral-800 { background-color: #262626; }
+  .bg-neutral-900 { background-color: #171717; }
+  .bg-neutral-950 { background-color: #0a0a0a; }
+  .bg-neutral-950\/50 { background-color: rgba(10,10,10,.5); }
+  .bg-orange-500 { background-color: #f97316; }
+  .bg-red-500\/10 { background-color: rgba(239,68,68,.1); }
+  .text-emerald-400 { color: #34d399; }
+  .border-emerald-400 { border-color: #34d399; }
+  .text-neutral-50 { color: #fafafa; }
+  .text-neutral-100 { color: #f5f5f5; }
+  .text-neutral-200 { color: #e5e5e5; }
+  .text-neutral-300 { color: #d4d4d4; }
+  .text-neutral-400 { color: #a3a3a3; }
+  .text-neutral-500 { color: #737373; }
+  .text-neutral-600 { color: #525252; }
+  .text-neutral-950 { color: #0a0a0a; }
+  .text-red-400 { color: #f87171; }
+  button, input, select, textarea {
+    font-family: inherit;
+    font-size: 100%;
+    line-height: inherit;
+    color: inherit;
+    margin: 0;
+    padding: 0;
   }
-  h1 { font-size: 20px; }
-  button {
-    display: block;
-    width: 100%;
-    padding: 12px;
-    margin: 10px 0;
-    border-radius: 10px;
-    border: none;
-    font-size: 15px;
-    font-weight: 600;
-    background: #f97316;
-    color: #0a0a0a;
+  button, select {
+    text-transform: none;
   }
-  button:disabled { background: #262626; color: #737373; }
-  pre {
-    background: #171717;
-    border: 1px solid #292929;
-    border-radius: 10px;
-    padding: 12px;
-    font-size: 12px;
-    white-space: pre-wrap;
-    word-break: break-word;
+  button, [type='button'], [type='reset'], [type='submit'] {
+    -webkit-appearance: button;
+    background-color: transparent;
+    background-image: none;
+    border: 0;
+    cursor: pointer;
   }
-  .status { font-size: 13px; color: #a3a3a3; margin-bottom: 8px; }
+  select {
+    background-color: transparent;
+  }
 </style>
+<style>
+  body { background:#0a0a0a; color:#fafafa; font-family: -apple-system, sans-serif; }
+  ::-webkit-scrollbar { display:none; }
+  #boot-error { padding:16px; color:#f87171; font-size:12px; white-space:pre-wrap; word-break:break-word; }
+</style>
+<script src="icons.js?v=4"></script>
+<script src="charts.js?v=2"></script>
 </head>
-<body>
-  <h1>X3LOG — OAuth + Sheets Test</h1>
-  <div class="status" id="status">Not signed in.</div>
+<body class="text-neutral-50">
+<div id="root"><div style="padding:16px;color:#a3a3a3;">Loading…</div></div>
+<div id="boot-error"></div>
 
-  <button id="signin-btn">Sign in with Google</button>
-  <button id="read-btn" disabled>Read Routines!A1:C1</button>
-  <button id="write-btn" disabled>Append test row to Routines</button>
-
-  <pre id="output">Output will show here.</pre>
-
-  <script>
-    const CLIENT_ID = "242814993883-qubuj093i89cliq097qb89em016h5cfe.apps.googleusercontent.com";
-    const SPREADSHEET_ID = "19JalMbLch7TlUqduehJWctz0EabC1akRuoEgLpDG2xU";
-    const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
-
-    let accessToken = null;
-    let tokenClient = null;
-
-    const statusEl = document.getElementById("status");
-    const outputEl = document.getElementById("output");
-    const signinBtn = document.getElementById("signin-btn");
-    const readBtn = document.getElementById("read-btn");
-    const writeBtn = document.getElementById("write-btn");
-
-    function log(obj) {
-      outputEl.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+<script>
+  function showBootError(msg) {
+    var el = document.getElementById("boot-error");
+    if (el) el.textContent = "Error: " + msg;
+    console.error(msg);
+  }
+  window.onerror = function (message, source, lineno, colno, error) {
+    showBootError(message + " (line " + lineno + ")");
+  };
+  window.addEventListener("unhandledrejection", function (e) {
+    showBootError("Unhandled promise rejection: " + (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+  window.__appBooted = false;
+  setTimeout(function () {
+    if (!window.__appBooted) {
+      showBootError(
+        "Boot check failed after 4s.\n" +
+        "React loaded: " + (typeof React !== "undefined") + "\n" +
+        "ReactDOM loaded: " + (typeof ReactDOM !== "undefined") + "\n" +
+        "Icons loaded: " + (typeof window.LucideIcons !== "undefined") + "\n" +
+        "Charts loaded: " + (typeof window.Recharts !== "undefined") + "\n" +
+        "Google Identity Services loaded: " + (typeof google !== "undefined" && !!(google && google.accounts))
+      );
     }
+  }, 4000);
+</script>
 
-    window.onload = () => {
-      tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: (resp) => {
-          if (resp.error) {
-            statusEl.textContent = "Sign-in failed.";
-            log(resp);
+<script>
+(() => {
+  const { useState, useEffect, useCallback, useRef, useMemo } = React;
+  const {
+    ChevronUp,
+    ChevronDown,
+    ChevronLeft,
+    ChevronRight,
+    Pencil,
+    Trash2,
+    Eye,
+    EyeOff,
+    Plus,
+    Check,
+    X,
+    Timer,
+    ListChecks,
+    RotateCcw,
+    Clock,
+    TrendingUp,
+    Settings,
+    HeartPulse
+  } = window.LucideIcons;
+  const { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } = window.Recharts;
+  const CLIENT_ID = "242814993883-qubuj093i89cliq097qb89em016h5cfe.apps.googleusercontent.com";
+  const SPREADSHEET_ID = "19JalMbLch7TlUqduehJWctz0EabC1akRuoEgLpDG2xU";
+  const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
+  const TOKEN_KEY = "x3log_access_token";
+  const TOKEN_EXPIRY_KEY = "x3log_token_expiry";
+  const BANDS = [
+    { id: "none", label: "None", short: "\u2014", swatch: "transparent", dot: "#9CA3AF" },
+    { id: "wp", label: "White", short: "W", swatch: "#F4F2EC", dot: "#F4F2EC" },
+    { id: "lgp", label: "Light Grey", short: "LG", swatch: "#B9BCC2", dot: "#B9BCC2" },
+    { id: "dgp", label: "Dark Grey", short: "DG", swatch: "#5C6068", dot: "#5C6068" },
+    { id: "bp", label: "Black", short: "B", swatch: "#232529", dot: "#232529" },
+    { id: "bwp", label: "Black + White", short: "B+W", swatch: "linear-gradient(135deg, #232529 50%, #F4F2EC 50%)", dot: "#232529" },
+    { id: "blgp", label: "Black + Light Grey", short: "B+LG", swatch: "linear-gradient(135deg, #232529 50%, #B9BCC2 50%)", dot: "#232529" },
+    { id: "bgp", label: "Black + Dark Grey", short: "B+DG", swatch: "linear-gradient(135deg, #232529 50%, #5C6068 50%)", dot: "#232529" }
+  ];
+  function bandById(id) {
+    return BANDS.find((b) => b.id === id) || BANDS[0];
+  }
+  const METRIC_DEFS = [
+    { key: "weight", label: "Weight", unit: "lb", decimals: 1, step: "0.1", group: "morning" },
+    { key: "sleep", label: "Sleep", unit: "hr", decimals: 1, step: "0.1", group: "morning", inputType: "time" },
+    { key: "sleepScore", label: "Sleep Score", unit: "", decimals: 0, step: "1", group: "morning" },
+    { key: "readiness", label: "Readiness", unit: "", decimals: 0, step: "1", group: "morning" },
+    { key: "hrv", label: "HRV", unit: "ms", decimals: 0, step: "1", group: "morning" },
+    { key: "rhr", label: "RHR", unit: "bpm", decimals: 0, step: "1", group: "morning" },
+    { key: "steps", label: "Steps", unit: "", decimals: 0, step: "1", group: "nutrition" },
+    { key: "protein", label: "Protein", unit: "g", decimals: 0, step: "1", group: "nutrition" },
+    { key: "calories", label: "Calories", unit: "kcal", decimals: 0, step: "1", group: "nutrition" }
+  ];
+  const TREND_PALETTE = ["#f97316", "#22d3ee", "#a78bfa", "#34d399", "#f472b6", "#fbbf24", "#60a5fa", "#fb7185"];
+  function genId(prefix) {
+    return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+  function toDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  function todayStr() {
+    return toDateStr(/* @__PURE__ */ new Date());
+  }
+  function addDays(dateStr, delta) {
+    const d = /* @__PURE__ */ new Date(`${dateStr}T00:00:00`);
+    d.setDate(d.getDate() + delta);
+    return toDateStr(d);
+  }
+  function dateToTs(dateStr) {
+    return (/* @__PURE__ */ new Date(`${dateStr}T00:00:00`)).getTime();
+  }
+  function fmtDateShort(ts) {
+    return new Date(ts).toLocaleDateString(void 0, { month: "short", day: "numeric" });
+  }
+  function fmtDate(ts) {
+    return new Date(ts).toLocaleDateString(void 0, { month: "short", day: "numeric", year: "numeric" });
+  }
+  function fmtTime(ts) {
+    return new Date(ts).toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" });
+  }
+  function fmtDayLabel(dateStr) {
+    if (dateStr === todayStr()) return "Today";
+    return (/* @__PURE__ */ new Date(`${dateStr}T00:00:00`)).toLocaleDateString(void 0, { weekday: "short", month: "short", day: "numeric" });
+  }
+  function tsToInputTime(ts) {
+    const d = new Date(ts);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  function inputTimeTo12h(timeStr) {
+    if (!timeStr) return null;
+    const [h, m] = timeStr.split(":").map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    const period = h >= 12 ? "PM" : "AM";
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+  }
+  function groupEntriesByDay(entries) {
+    const byDate = {};
+    for (const e of entries) {
+      const dayKey = new Date(e.timestamp).toDateString();
+      if (!byDate[dayKey]) byDate[dayKey] = { total: 0, timestamp: e.timestamp, band: e.band, setCount: 0 };
+      byDate[dayKey].total += e.tut;
+      byDate[dayKey].setCount += 1;
+      if (e.timestamp >= byDate[dayKey].timestamp) {
+        byDate[dayKey].timestamp = e.timestamp;
+        byDate[dayKey].band = e.band;
+      }
+    }
+    return Object.values(byDate).sort((a, b) => a.timestamp - b.timestamp);
+  }
+  function fmtVal(v, unit) {
+    if (v === null || v === void 0) return "\u2014";
+    return unit === "reps" ? `${v} reps` : `${v}s`;
+  }
+  function computeStats(entries) {
+    if (!entries.length) return { pr: null, last: null, targetLow: null, targetHigh: null };
+    const sorted = [...entries].sort((a, b) => b.timestamp - a.timestamp);
+    const pr = Math.max(...sorted.map((e) => e.tut));
+    const last = sorted[0].tut;
+    const recent3 = sorted.slice(0, 3).map((e) => e.tut);
+    const avg = recent3.reduce((a, b) => a + b, 0) / recent3.length;
+    return { pr, last, targetLow: Math.round(avg * 0.95), targetHigh: Math.round(avg * 1.1) };
+  }
+  function parseSleepInput(raw) {
+    if (raw === "" || raw === void 0 || raw === null) return null;
+    const str = String(raw).trim();
+    if (str.includes(":")) {
+      const [h, m] = str.split(":");
+      return (parseInt(h, 10) || 0) + (parseInt(m, 10) || 0) / 60;
+    }
+    const val = parseFloat(str);
+    return Number.isNaN(val) ? null : val;
+  }
+  function formatSleepHours(decimalHours) {
+    if (decimalHours === null || decimalHours === void 0 || Number.isNaN(decimalHours)) return "\u2014";
+    const h = Math.floor(decimalHours);
+    const m = Math.round((decimalHours - h) * 60);
+    return `${h}:${String(m).padStart(2, "0")}`;
+  }
+  function useSheetsApi(accessToken) {
+    const authHeaders = { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
+    async function getRange(range) {
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}`, { headers: authHeaders });
+      if (!res.ok) throw new Error(`Read failed (${res.status}): ${await res.text()}`);
+      const data = await res.json();
+      return data.values || [];
+    }
+    async function clearRange(range) {
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:clear`, { method: "POST", headers: authHeaders });
+      if (!res.ok) throw new Error(`Clear failed (${res.status}): ${await res.text()}`);
+    }
+    async function updateRange(range, values) {
+      if (values.length === 0) return;
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, { method: "PUT", headers: authHeaders, body: JSON.stringify({ values }) });
+      if (!res.ok) throw new Error(`Write failed (${res.status}): ${await res.text()}`);
+    }
+    async function appendRow(range, row) {
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW`, { method: "POST", headers: authHeaders, body: JSON.stringify({ values: [row] }) });
+      if (!res.ok) throw new Error(`Append failed (${res.status}): ${await res.text()}`);
+    }
+    return { getRange, clearRange, updateRange, appendRow };
+  }
+  function App() {
+    const [accessToken, setAccessToken] = useState(null);
+    const [tokenClient, setTokenClient] = useState(null);
+    const [checkingSilentAuth, setCheckingSilentAuth] = useState(true);
+    const [errorMsg, setErrorMsg] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [saveState, setSaveState] = useState("idle");
+    const [view, setView] = useState("log");
+    const [routines, setRoutines] = useState([]);
+    const [entries, setEntries] = useState([]);
+    const [dailyMetrics, setDailyMetrics] = useState([]);
+    const [sessionOverrides, setSessionOverrides] = useState({});
+    const [activeRoutineId, setActiveRoutineId] = useState(null);
+    const [viewDate, setViewDate] = useState(todayStr());
+    const [selectedBand, setSelectedBand] = useState({});
+    const [formState, setFormState] = useState({});
+    const [timers, setTimers] = useState({});
+    const [expandedExId, setExpandedExId] = useState(null);
+    const [dailyForm, setDailyForm] = useState({
+      date: todayStr(),
+      nutritionDate: addDays(todayStr(), -1),
+      weight: "",
+      hrv: "",
+      rhr: "",
+      protein: "",
+      calories: "",
+      sleep: "",
+      sleepScore: "",
+      readiness: "",
+      steps: ""
+    });
+    const [expandedMetricKey, setExpandedMetricKey] = useState(null);
+    const [dailyEditing, setDailyEditing] = useState(null);
+    const [dailyConfirmDelete, setDailyConfirmDelete] = useState(null);
+    const [pendingDailyOverwrite, setPendingDailyOverwrite] = useState(null);
+    const [historyOpenDates, setHistoryOpenDates] = useState({});
+    const [trendExerciseIds, setTrendExerciseIds] = useState(null);
+    const [confirmDelete, setConfirmDelete] = useState(null);
+    const [editingEntry, setEditingEntry] = useState(null);
+    const [copiedFlash, setCopiedFlash] = useState(null);
+    const [manageRenaming, setManageRenaming] = useState(null);
+    const [expandedRoutine, setExpandedRoutine] = useState({});
+    const [manageNewRoutineName, setManageNewRoutineName] = useState("");
+    const [manageNewExName, setManageNewExName] = useState({});
+    const [manageNewExUnit, setManageNewExUnit] = useState({});
+    const api = useSheetsApi(accessToken);
+    function cacheToken(token, expiresInSeconds) {
+      const expiryTs = Date.now() + expiresInSeconds * 1e3 - 6e4;
+      try {
+        localStorage.setItem(TOKEN_KEY, token);
+        localStorage.setItem(TOKEN_EXPIRY_KEY, String(expiryTs));
+      } catch (e) {
+      }
+    }
+    function getCachedToken() {
+      try {
+        const token = localStorage.getItem(TOKEN_KEY);
+        const expiry = parseInt(localStorage.getItem(TOKEN_EXPIRY_KEY), 10);
+        if (token && expiry && Date.now() < expiry) return token;
+      } catch (e) {
+      }
+      return null;
+    }
+    useEffect(() => {
+      let cancelled = false;
+      let authAttempts = 0;
+      function initAuth() {
+        if (cancelled) return;
+        if (!(window.google && window.google.accounts && window.google.accounts.oauth2)) {
+          authAttempts += 1;
+          if (authAttempts > 100) {
+            setCheckingSilentAuth(false);
+            setErrorMsg("Google Identity Services failed to load after 10s. Check your network connection or an ad blocker, then reload the page.");
             return;
           }
-          accessToken = resp.access_token;
-          statusEl.textContent = "Signed in. Token acquired.";
-          readBtn.disabled = false;
-          writeBtn.disabled = false;
-        },
-      });
-    };
-
-    signinBtn.onclick = () => {
-      tokenClient.requestAccessToken();
-    };
-
-    readBtn.onclick = async () => {
-      statusEl.textContent = "Reading...";
-      try {
-        const res = await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Routines!A1:C1`,
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        );
-        const data = await res.json();
-        statusEl.textContent = res.ok ? "Read succeeded." : `Read failed (${res.status}).`;
-        log(data);
-      } catch (e) {
-        statusEl.textContent = "Read error.";
-        log(String(e));
+          setTimeout(initAuth, 100);
+          return;
+        }
+        const cached = getCachedToken();
+        const onResp = (resp) => {
+          setCheckingSilentAuth(false);
+          if (resp.error) {
+            if (resp.error !== "user_logged_out" && resp.error !== "immediate_failed") setErrorMsg("Sign-in failed: " + JSON.stringify(resp));
+            return;
+          }
+          cacheToken(resp.access_token, resp.expires_in || 3500);
+          setAccessToken(resp.access_token);
+        };
+        const client = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: onResp });
+        setTokenClient(client);
+        if (cached) {
+          setAccessToken(cached);
+          setCheckingSilentAuth(false);
+          return;
+        }
+        client.requestAccessToken({ prompt: "" });
+        setTimeout(() => setCheckingSilentAuth(false), 3e3);
       }
-    };
-
-    writeBtn.onclick = async () => {
-      statusEl.textContent = "Writing...";
+      initAuth();
+      return () => {
+        cancelled = true;
+      };
+    }, []);
+    const loadData = useCallback(async () => {
+      setLoading(true);
+      setErrorMsg(null);
       try {
-        const res = await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Routines!A:C:append?valueInputOption=RAW`,
+        const routineRows = await api.getRange("Routines!A2:C10000");
+        const exerciseRows = await api.getRange("Exercises!A2:F10000");
+        const entryRows = await api.getRange("Entries!A2:G10000");
+        const overrideRows = await api.getRange("SessionOverrides!A2:D10000");
+        const dailyRows = await api.getRange("DailyMetrics!A2:J10000");
+        const loadedRoutines = routineRows.filter((r) => r[0]).map((r) => ({ id: r[0], name: r[1] || "", sortOrder: parseInt(r[2], 10) || 0, exercises: [] })).sort((a, b) => a.sortOrder - b.sortOrder);
+        const byRoutine = {};
+        exerciseRows.filter((r) => r[0]).forEach((r) => {
+          const ex = { id: r[0], routineId: r[1], name: r[2] || "", unit: r[3] || "seconds", archived: r[4] === "TRUE" || r[4] === "true" || r[4] === true, sortOrder: parseInt(r[5], 10) || 0 };
+          if (!byRoutine[ex.routineId]) byRoutine[ex.routineId] = [];
+          byRoutine[ex.routineId].push(ex);
+        });
+        for (const key in byRoutine) byRoutine[key].sort((a, b) => a.sortOrder - b.sortOrder);
+        loadedRoutines.forEach((r) => {
+          r.exercises = byRoutine[r.id] || [];
+        });
+        const loadedEntries = entryRows.filter((r) => r[0]).map((r) => ({
+          id: r[0],
+          routineId: r[1],
+          exerciseId: r[2],
+          band: r[3],
+          tut: parseFloat(r[4]),
+          note: r[5] || "",
+          timestamp: parseInt(r[6], 10)
+        }));
+        const loadedOverrides = {};
+        overrideRows.filter((r) => r[0]).forEach((r) => {
+          loadedOverrides[`${r[0]}|${r[1]}`] = { start: r[2] || "", finish: r[3] || "" };
+        });
+        const nz = (v) => v === "" || v === void 0 ? null : parseFloat(v);
+        const loadedDaily = dailyRows.filter((r) => r[0]).map((r) => ({
+          date: r[0],
+          weight: nz(r[1]),
+          sleep: nz(r[2]),
+          sleepScore: nz(r[3]),
+          readiness: nz(r[4]),
+          hrv: nz(r[5]),
+          rhr: nz(r[6]),
+          steps: nz(r[7]),
+          protein: nz(r[8]),
+          calories: nz(r[9])
+        }));
+        setRoutines(loadedRoutines);
+        setEntries(loadedEntries);
+        setSessionOverrides(loadedOverrides);
+        setDailyMetrics(loadedDaily);
+        setActiveRoutineId((prev) => {
+          var _a;
+          return prev || ((_a = loadedRoutines[0]) == null ? void 0 : _a.id) || null;
+        });
+      } catch (e) {
+        setErrorMsg(String(e));
+      } finally {
+        setLoading(false);
+      }
+    }, [accessToken]);
+    useEffect(() => {
+      if (accessToken) loadData();
+    }, [accessToken, loadData]);
+    const routinesSaveTimeout = useRef(null);
+    function persistRoutines(nextRoutines) {
+      if (routinesSaveTimeout.current) clearTimeout(routinesSaveTimeout.current);
+      routinesSaveTimeout.current = setTimeout(async () => {
+        setSaveState("saving");
+        try {
+          const routineRows = nextRoutines.map((r, i) => [r.id, r.name, i]);
+          const exerciseRows = [];
+          nextRoutines.forEach((r) => {
+            r.exercises.forEach((ex, i) => {
+              exerciseRows.push([ex.id, r.id, ex.name, ex.unit || "seconds", ex.archived ? "TRUE" : "FALSE", i]);
+            });
+          });
+          await api.clearRange("Routines!A2:C10000");
+          await api.clearRange("Exercises!A2:F10000");
+          if (routineRows.length) await api.updateRange("Routines!A2", routineRows);
+          if (exerciseRows.length) await api.updateRange("Exercises!A2", exerciseRows);
+          setSaveState("saved");
+          setTimeout(() => setSaveState("idle"), 1200);
+        } catch (e) {
+          setSaveState("error");
+          setErrorMsg(String(e));
+        }
+      }, 500);
+    }
+    function updateRoutines(updater) {
+      setRoutines((prev) => {
+        const next = updater(prev);
+        persistRoutines(next);
+        return next;
+      });
+    }
+    function addRoutine() {
+      const name = manageNewRoutineName.trim();
+      if (!name) return;
+      updateRoutines((prev) => [...prev, { id: genId("routine"), name, exercises: [] }]);
+      setManageNewRoutineName("");
+    }
+    function deleteRoutine(routineId) {
+      updateRoutines((prev) => prev.filter((r) => r.id !== routineId));
+      if (activeRoutineId === routineId) setActiveRoutineId(null);
+      setConfirmDelete(null);
+    }
+    function renameRoutine(routineId, name) {
+      if (!name.trim()) return;
+      updateRoutines((prev) => prev.map((r) => r.id === routineId ? { ...r, name: name.trim() } : r));
+      setManageRenaming(null);
+    }
+    function addExercise(routineId) {
+      const name = (manageNewExName[routineId] || "").trim();
+      if (!name) return;
+      const unit = manageNewExUnit[routineId] || "seconds";
+      updateRoutines((prev) => prev.map((r) => r.id === routineId ? { ...r, exercises: [...r.exercises, { id: genId("ex"), name, unit, archived: false }] } : r));
+      setManageNewExName((prev) => ({ ...prev, [routineId]: "" }));
+    }
+    function renameExercise(routineId, exId, name) {
+      if (!name.trim()) return;
+      updateRoutines((prev) => prev.map((r) => r.id === routineId ? { ...r, exercises: r.exercises.map((ex) => ex.id === exId ? { ...ex, name: name.trim() } : ex) } : r));
+      setManageRenaming(null);
+    }
+    function toggleArchive(routineId, exId, archived) {
+      updateRoutines((prev) => prev.map((r) => r.id === routineId ? { ...r, exercises: r.exercises.map((ex) => ex.id === exId ? { ...ex, archived } : ex) } : r));
+    }
+    function toggleUnit(routineId, exId) {
+      updateRoutines((prev) => prev.map((r) => r.id === routineId ? { ...r, exercises: r.exercises.map((ex) => ex.id === exId ? { ...ex, unit: (ex.unit || "seconds") === "seconds" ? "reps" : "seconds" } : ex) } : r));
+    }
+    function moveExercise(routineId, exId, direction) {
+      updateRoutines((prev) => prev.map((r) => {
+        if (r.id !== routineId) return r;
+        const idx = r.exercises.findIndex((ex) => ex.id === exId);
+        const swapIdx = idx + direction;
+        if (idx < 0 || swapIdx < 0 || swapIdx >= r.exercises.length) return r;
+        const exercises = [...r.exercises];
+        [exercises[idx], exercises[swapIdx]] = [exercises[swapIdx], exercises[idx]];
+        return { ...r, exercises };
+      }));
+    }
+    const entriesSaveTimeout = useRef(null);
+    function persistEntriesFull(nextEntries) {
+      if (entriesSaveTimeout.current) clearTimeout(entriesSaveTimeout.current);
+      entriesSaveTimeout.current = setTimeout(async () => {
+        setSaveState("saving");
+        try {
+          const rows = nextEntries.map((e) => [e.id, e.routineId, e.exerciseId, e.band, e.tut, e.note || "", e.timestamp]);
+          await api.clearRange("Entries!A2:G10000");
+          if (rows.length) await api.updateRange("Entries!A2", rows);
+          setSaveState("saved");
+          setTimeout(() => setSaveState("idle"), 1200);
+        } catch (e) {
+          setSaveState("error");
+          setErrorMsg(String(e));
+        }
+      }, 400);
+    }
+    const overridesSaveTimeout = useRef(null);
+    function persistOverrides(nextOverrides) {
+      if (overridesSaveTimeout.current) clearTimeout(overridesSaveTimeout.current);
+      overridesSaveTimeout.current = setTimeout(async () => {
+        try {
+          const rows = Object.entries(nextOverrides).map(([key, v]) => {
+            const [date, routineId] = key.split("|");
+            return [date, routineId, v.start || "", v.finish || ""];
+          });
+          await api.clearRange("SessionOverrides!A2:D10000");
+          if (rows.length) await api.updateRange("SessionOverrides!A2", rows);
+        } catch (e) {
+          setErrorMsg(String(e));
+        }
+      }, 400);
+    }
+    function setSessionOverrideField(key, field, value) {
+      setSessionOverrides((prev) => {
+        const next = { ...prev, [key]: { ...prev[key] || {}, [field]: value } };
+        persistOverrides(next);
+        return next;
+      });
+    }
+    const dailySaveTimeout = useRef(null);
+    function persistDaily(nextMetrics) {
+      if (dailySaveTimeout.current) clearTimeout(dailySaveTimeout.current);
+      dailySaveTimeout.current = setTimeout(async () => {
+        setSaveState("saving");
+        try {
+          const nz = (v) => v === null || v === void 0 ? "" : v;
+          const rows = nextMetrics.slice().sort((a, b) => a.date.localeCompare(b.date)).map((d) => [d.date, nz(d.weight), nz(d.sleep), nz(d.sleepScore), nz(d.readiness), nz(d.hrv), nz(d.rhr), nz(d.steps), nz(d.protein), nz(d.calories)]);
+          await api.clearRange("DailyMetrics!A2:J10000");
+          if (rows.length) await api.updateRange("DailyMetrics!A2", rows);
+          setSaveState("saved");
+          setTimeout(() => setSaveState("idle"), 1200);
+        } catch (e) {
+          setSaveState("error");
+          setErrorMsg(String(e));
+        }
+      }, 400);
+    }
+    function saveDailyEntry(date, values) {
+      setDailyMetrics((prev) => {
+        const idx = prev.findIndex((d) => d.date === date);
+        let next = [...prev];
+        if (idx >= 0) {
+          const merged = { ...next[idx] };
+          for (const k of Object.keys(values)) if (values[k] !== null && !Number.isNaN(values[k])) merged[k] = values[k];
+          next[idx] = merged;
+        } else {
+          const base = { date, weight: null, hrv: null, rhr: null, protein: null, calories: null, sleep: null, sleepScore: null, readiness: null, steps: null };
+          for (const k of Object.keys(values)) if (values[k] !== null && !Number.isNaN(values[k])) base[k] = values[k];
+          next.push(base);
+        }
+        persistDaily(next);
+        return next;
+      });
+    }
+    function clearDailyValue(date, key) {
+      setDailyMetrics((prev) => {
+        const next = prev.map((d) => d.date === date ? { ...d, [key]: null } : d);
+        persistDaily(next);
+        return next;
+      });
+    }
+    function moveDailyValue(oldDate, key, newDate, value) {
+      setDailyMetrics((prev) => {
+        let next = prev.map((d) => d.date === oldDate ? { ...d, [key]: null } : d);
+        const idx = next.findIndex((d) => d.date === newDate);
+        if (idx >= 0) next[idx] = { ...next[idx], [key]: value };
+        else next.push({ date: newDate, weight: null, hrv: null, rhr: null, protein: null, calories: null, sleep: null, sleepScore: null, readiness: null, steps: null, [key]: value });
+        persistDaily(next);
+        return next;
+      });
+    }
+    function getMetricSeries(key) {
+      return dailyMetrics.filter((d) => d[key] !== null && d[key] !== void 0).map((d) => ({ date: d.date, value: d[key] })).sort((a, b) => a.date.localeCompare(b.date));
+    }
+    function computeMetricStats(key) {
+      const series = getMetricSeries(key);
+      if (!series.length) return { latest: null, avg7: null, delta: null };
+      const last7 = series.slice(-7);
+      const avg7 = last7.reduce((a, b) => a + b.value, 0) / last7.length;
+      const latest = series[series.length - 1].value;
+      return { latest, avg7, delta: latest - avg7 };
+    }
+    function fmtMetricValue(key, val) {
+      const def = METRIC_DEFS.find((m) => m.key === key);
+      if (key === "sleep") return formatSleepHours(val);
+      return `${val}${(def == null ? void 0 : def.unit) || ""}`;
+    }
+    function commitDailyForm(morningValues, nutritionValues) {
+      saveDailyEntry(dailyForm.date, morningValues);
+      saveDailyEntry(dailyForm.nutritionDate, nutritionValues);
+      setDailyForm({ date: dailyForm.date, nutritionDate: dailyForm.nutritionDate, weight: "", hrv: "", rhr: "", protein: "", calories: "", sleep: "", sleepScore: "", readiness: "", steps: "" });
+      setPendingDailyOverwrite(null);
+    }
+    function submitDailyForm() {
+      const morningValues = {}, nutritionValues = {};
+      for (const m of METRIC_DEFS) {
+        const raw = dailyForm[m.key];
+        const val = m.key === "sleep" ? parseSleepInput(raw) : raw === "" || raw === void 0 ? null : parseFloat(raw);
+        if (m.group === "nutrition") nutritionValues[m.key] = val;
+        else morningValues[m.key] = val;
+      }
+      const morningEntry = dailyMetrics.find((d) => d.date === dailyForm.date);
+      const nutritionEntry = dailyMetrics.find((d) => d.date === dailyForm.nutritionDate);
+      const conflicts = [];
+      for (const m of METRIC_DEFS) {
+        const isNutrition = m.group === "nutrition";
+        const newVal = isNutrition ? nutritionValues[m.key] : morningValues[m.key];
+        const existingEntry = isNutrition ? nutritionEntry : morningEntry;
+        const oldVal = existingEntry ? existingEntry[m.key] : null;
+        if (newVal !== null && !Number.isNaN(newVal) && oldVal !== null && oldVal !== void 0) {
+          conflicts.push({ date: isNutrition ? dailyForm.nutritionDate : dailyForm.date, label: m.label, oldDisplay: fmtMetricValue(m.key, oldVal), newDisplay: fmtMetricValue(m.key, newVal) });
+        }
+      }
+      if (conflicts.length > 0) {
+        setPendingDailyOverwrite({ morningValues, nutritionValues, conflicts });
+        return;
+      }
+      commitDailyForm(morningValues, nutritionValues);
+    }
+    const MORNING_KEYS = ["weight", "sleep", "sleepScore", "readiness", "hrv", "rhr"];
+    const NUTRITION_KEYS = ["steps", "protein", "calories"];
+    function valToFormStr(key, val) {
+      if (val === null || val === void 0) return "";
+      if (key === "sleep") return formatSleepHours(val);
+      return String(val);
+    }
+    function applyMorningDate(newDate) {
+      setDailyForm((prev) => {
+        const entry = dailyMetrics.find((d) => d.date === newDate);
+        const next = { ...prev, date: newDate, nutritionDate: addDays(newDate, -1) };
+        for (const k of MORNING_KEYS) next[k] = entry ? valToFormStr(k, entry[k]) : "";
+        const nutritionEntry = dailyMetrics.find((d) => d.date === next.nutritionDate);
+        for (const k of NUTRITION_KEYS) next[k] = nutritionEntry ? valToFormStr(k, nutritionEntry[k]) : "";
+        return next;
+      });
+    }
+    function applyNutritionDate(newDate) {
+      setDailyForm((prev) => {
+        const entry = dailyMetrics.find((d) => d.date === newDate);
+        const next = { ...prev, nutritionDate: newDate };
+        for (const k of NUTRITION_KEYS) next[k] = entry ? valToFormStr(k, entry[k]) : "";
+        return next;
+      });
+    }
+    const runningCount = Object.values(timers).filter((t) => t.phase === "running" || t.phase === "countdown").length;
+    useEffect(() => {
+      if (runningCount === 0) return;
+      const id = setInterval(() => {
+        setTimers((prev) => {
+          const next = { ...prev };
+          for (const k in next) {
+            const t = next[k];
+            if (t.phase === "countdown") next[k] = t.countdown <= 1 ? { phase: "running", seconds: 0, countdown: 0 } : { ...t, countdown: t.countdown - 1 };
+            else if (t.phase === "running") next[k] = { ...t, seconds: t.seconds + 1 };
+          }
+          return next;
+        });
+      }, 1e3);
+      return () => clearInterval(id);
+    }, [runningCount]);
+    function startTimer(exId) {
+      setTimers((prev) => ({ ...prev, [exId]: { phase: "countdown", seconds: 0, countdown: 5 } }));
+    }
+    function stopTimer(exId) {
+      const t = timers[exId];
+      if (!t) return;
+      if (t.phase === "countdown") {
+        setTimers((prev) => ({ ...prev, [exId]: { phase: "idle", seconds: 0, countdown: 5 } }));
+        return;
+      }
+      setTimers((prev) => ({ ...prev, [exId]: { ...prev[exId], phase: "idle" } }));
+      setFormState((prev) => ({ ...prev, [exId]: { ...prev[exId] || {}, tut: String(t.seconds) } }));
+    }
+    function resetTimer(exId) {
+      setTimers((prev) => ({ ...prev, [exId]: { phase: "idle", seconds: 0, countdown: 5 } }));
+    }
+    const allExercises = routines.flatMap((r) => r.exercises.map((ex) => ({ ...ex, routineId: r.id })));
+    function findExercise(exId) {
+      return allExercises.find((e) => e.id === exId);
+    }
+    function getExerciseEntries(exerciseId, band) {
+      return entries.filter((e) => e.exerciseId === exerciseId && (band ? e.band === band : true)).sort((a, b) => b.timestamp - a.timestamp);
+    }
+    function defaultBandFor(exerciseId) {
+      const all = getExerciseEntries(exerciseId);
+      return all.length ? all[0].band : "wp";
+    }
+    async function logSet(routineId, exerciseId, overrideTut) {
+      const band = selectedBand[exerciseId] || defaultBandFor(exerciseId);
+      const fs = formState[exerciseId] || {};
+      const tut = overrideTut !== void 0 ? overrideTut : parseInt(fs.tut, 10);
+      if (!tut || tut <= 0) return;
+      const entry = { id: genId("entry"), routineId, exerciseId, band, tut, note: (fs.note || "").trim(), timestamp: Date.now() };
+      setEntries((prev) => [...prev, entry]);
+      setFormState((prev) => ({ ...prev, [exerciseId]: { tut: "", note: "" } }));
+      setTimers((prev) => ({ ...prev, [exerciseId]: { phase: "idle", seconds: 0, countdown: 5 } }));
+      setSaveState("saving");
+      try {
+        await api.appendRow("Entries!A:G", [entry.id, entry.routineId, entry.exerciseId, entry.band, entry.tut, entry.note, entry.timestamp]);
+        setSaveState("saved");
+        setTimeout(() => setSaveState("idle"), 1200);
+      } catch (e) {
+        setSaveState("error");
+        setErrorMsg(String(e));
+      }
+    }
+    function deleteEntry(id) {
+      setEntries((prev) => {
+        const next = prev.filter((e) => e.id !== id);
+        persistEntriesFull(next);
+        return next;
+      });
+      setConfirmDelete(null);
+    }
+    function saveEditedEntry(id, patch) {
+      setEntries((prev) => {
+        const next = prev.map((e) => e.id === id ? { ...e, ...patch } : e);
+        persistEntriesFull(next);
+        return next;
+      });
+      setEditingEntry(null);
+    }
+    function buildWorkoutSummary(routine, sessionEntries, startOverride, finishOverride) {
+      if (!sessionEntries.length) return "";
+      const sorted = [...sessionEntries].sort((a, b) => a.timestamp - b.timestamp);
+      const totals = {}, counts = {}, bandsUsed = {};
+      for (const e of sorted) {
+        totals[e.exerciseId] = (totals[e.exerciseId] || 0) + e.tut;
+        counts[e.exerciseId] = (counts[e.exerciseId] || 0) + 1;
+        if (!bandsUsed[e.exerciseId]) bandsUsed[e.exerciseId] = [];
+        if (!bandsUsed[e.exerciseId].includes(e.band)) bandsUsed[e.exerciseId].push(e.band);
+      }
+      const orderedIds = ((routine == null ? void 0 : routine.exercises) || []).map((ex) => ex.id).filter((id) => totals[id] !== void 0);
+      const extraIds = Object.keys(totals).filter((id) => !orderedIds.includes(id));
+      const allIds = [...orderedIds, ...extraIds];
+      const lines = allIds.map((id) => {
+        const ex = findExercise(id);
+        const name = ex ? ex.name : "Unknown movement";
+        const unit = ex && ex.unit || "seconds";
+        const setLabel = counts[id] === 1 ? "set" : "sets";
+        const bandLabel = bandsUsed[id].map((b) => bandById(b).label).join("/");
+        return `${name}: ${counts[id]} ${setLabel}, ${fmtVal(totals[id], unit)} \u2014 ${bandLabel}`;
+      });
+      const start = startOverride || fmtTime(sorted[0].timestamp);
+      const finish = finishOverride || fmtTime(sorted[sorted.length - 1].timestamp);
+      return `X3bar ${(routine == null ? void 0 : routine.name) || "Workout"}
+
+${lines.join("\n")}
+
+Start: ${start}  Finish: ${finish}`;
+    }
+    function fallbackCopy(text) {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try {
+        document.execCommand("copy");
+      } catch (e) {
+      }
+      document.body.removeChild(ta);
+    }
+    function copySummary(key, routine, sessionEntries, startOverride, finishOverride) {
+      const text = buildWorkoutSummary(routine, sessionEntries, startOverride, finishOverride);
+      if (!text) return;
+      const flash = () => {
+        setCopiedFlash(key);
+        setTimeout(() => setCopiedFlash((p) => p === key ? null : p), 1500);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(flash).catch(() => {
+          fallbackCopy(text);
+          flash();
+        });
+      } else {
+        fallbackCopy(text);
+        flash();
+      }
+    }
+    if (checkingSilentAuth) return /* @__PURE__ */ React.createElement("div", { style: { padding: 24, color: "#a3a3a3" } }, "Checking sign-in status\u2026");
+    if (!accessToken) {
+      return /* @__PURE__ */ React.createElement("div", { className: "max-w-md mx-auto p-6" }, /* @__PURE__ */ React.createElement("h1", { className: "text-xl font-bold mb-4" }, "X3", /* @__PURE__ */ React.createElement("span", { className: "text-orange-500" }, "LOG")), /* @__PURE__ */ React.createElement("button", { onClick: () => tokenClient && tokenClient.requestAccessToken(), className: "w-full py-3 rounded-lg bg-orange-500 text-neutral-950 font-semibold" }, "Sign in with Google"), errorMsg && /* @__PURE__ */ React.createElement("div", { className: "text-red-400 text-xs mt-3 whitespace-pre-wrap" }, errorMsg));
+    }
+    const activeRoutine = routines.find((r) => r.id === activeRoutineId) || routines[0];
+    return /* @__PURE__ */ React.createElement("div", { className: "max-w-md mx-auto pb-20" }, /* @__PURE__ */ React.createElement("header", { className: "p-4 pb-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ React.createElement("h1", { className: "text-xl font-bold" }, "X3", /* @__PURE__ */ React.createElement("span", { className: "text-orange-500" }, "LOG")), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-400" }, saveState === "saving" && "Saving\u2026", saveState === "saved" && "Saved \u2713", saveState === "error" && "Save failed")), view === "log" && routines.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-3 overflow-x-auto" }, routines.map((r) => /* @__PURE__ */ React.createElement("button", { key: r.id, onClick: () => setActiveRoutineId(r.id), className: `shrink-0 px-3 py-1.5 rounded-full text-sm font-medium border ${activeRoutineId === r.id ? "bg-orange-500 border-orange-500 text-neutral-950" : "bg-neutral-900 border-neutral-800 text-neutral-300"}` }, r.name)))), /* @__PURE__ */ React.createElement("main", { className: "px-4" }, loading && /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm mb-3" }, "Loading from Sheet\u2026"), errorMsg && /* @__PURE__ */ React.createElement("div", { className: "text-red-400 text-xs mb-3 whitespace-pre-wrap" }, errorMsg), view === "log" && (!activeRoutine ? /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm" }, "No routines yet. Add one in Manage.") : /* @__PURE__ */ React.createElement(
+      LogRoutine,
+      {
+        routine: activeRoutine,
+        entries,
+        viewDate,
+        setViewDate,
+        selectedBand,
+        setSelectedBand,
+        formState,
+        setFormState,
+        timers,
+        startTimer,
+        stopTimer,
+        resetTimer,
+        logSet,
+        getExerciseEntries,
+        defaultBandFor,
+        expandedExId,
+        setExpandedExId,
+        deleteEntry,
+        confirmDelete,
+        setConfirmDelete,
+        editingEntry,
+        setEditingEntry,
+        saveEditedEntry,
+        buildWorkoutSummary,
+        copySummary,
+        copiedFlash,
+        sessionOverrides,
+        setSessionOverrideField
+      }
+    )), view === "daily" && /* @__PURE__ */ React.createElement(
+      DailyView,
+      {
+        dailyForm,
+        setDailyForm,
+        submitDailyForm,
+        computeMetricStats,
+        getMetricSeries,
+        expandedMetricKey,
+        setExpandedMetricKey,
+        dailyEditing,
+        setDailyEditing,
+        dailyConfirmDelete,
+        setDailyConfirmDelete,
+        saveDailyEntry,
+        clearDailyValue,
+        moveDailyValue,
+        pendingDailyOverwrite,
+        commitDailyForm,
+        setPendingDailyOverwrite,
+        applyMorningDate,
+        applyNutritionDate
+      }
+    ), view === "history" && /* @__PURE__ */ React.createElement(
+      HistoryView,
+      {
+        routines,
+        entries,
+        findExercise,
+        historyOpenDates,
+        setHistoryOpenDates,
+        deleteEntry,
+        confirmDelete,
+        setConfirmDelete,
+        editingEntry,
+        setEditingEntry,
+        saveEditedEntry,
+        buildWorkoutSummary,
+        copySummary,
+        copiedFlash,
+        sessionOverrides,
+        setSessionOverrideField
+      }
+    ), view === "trends" && /* @__PURE__ */ React.createElement(TrendsView, { routines, allExercises, trendExerciseIds, setTrendExerciseIds, getExerciseEntries }), view === "manage" && /* @__PURE__ */ React.createElement(
+      ManageView,
+      {
+        routines,
+        manageNewRoutineName,
+        setManageNewRoutineName,
+        addRoutine,
+        deleteRoutine,
+        renameRoutine,
+        addExercise,
+        renameExercise,
+        toggleArchive,
+        toggleUnit,
+        moveExercise,
+        manageNewExName,
+        setManageNewExName,
+        manageNewExUnit,
+        setManageNewExUnit,
+        manageRenaming,
+        setManageRenaming,
+        confirmDelete,
+        setConfirmDelete,
+        expandedRoutine,
+        setExpandedRoutine,
+        loadAllData: loadData
+      }
+    )), /* @__PURE__ */ React.createElement("nav", { className: "fixed bottom-0 inset-x-0 bg-neutral-950 border-t border-neutral-800 flex justify-around py-2", style: { maxWidth: 448, margin: "0 auto" } }, [
+      { id: "log", label: "Log", Icon: ListChecks },
+      { id: "daily", label: "Daily", Icon: HeartPulse },
+      { id: "history", label: "History", Icon: Clock },
+      { id: "trends", label: "Trends", Icon: TrendingUp },
+      { id: "manage", label: "Manage", Icon: Settings }
+    ].map((tab) => {
+      const active = view === tab.id;
+      return /* @__PURE__ */ React.createElement("button", { key: tab.id, onClick: () => setView(tab.id), className: "flex flex-col items-center gap-0.5 px-2 py-1", style: { color: active ? "#f97316" : "#737373" } }, /* @__PURE__ */ React.createElement(tab.Icon, { size: 19 }), /* @__PURE__ */ React.createElement("span", { className: "text-[10px] font-medium" }, tab.label));
+    })));
+  }
+  function StatBox({ label, value, accent }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-950 border border-neutral-800 rounded-xl px-2 py-2.5 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "text-[10px] uppercase tracking-wide text-neutral-500 mb-0.5" }, label), /* @__PURE__ */ React.createElement("div", { className: `text-base font-bold font-mono ${accent ? "text-emerald-400" : "text-neutral-50"}` }, value));
+  }
+  function EntryRow({ entry, unit, onEdit, onDelete, confirming, onConfirmDelete, onCancelDelete, editing, onSaveEdit, onCancelEdit }) {
+    const b = bandById(entry.band);
+    const [editTut, setEditTut] = useState(String(entry.tut));
+    const [editBand, setEditBand] = useState(entry.band);
+    const [editNote, setEditNote] = useState(entry.note || "");
+    if (editing) {
+      return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-orange-500 rounded-lg p-2.5 space-y-2", style: { borderWidth: 1 } }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: editTut, onChange: (e) => setEditTut(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-50", style: { width: 80 } }), /* @__PURE__ */ React.createElement("select", { value: editBand, onChange: (e) => setEditBand(e.target.value), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-sm text-neutral-200" }, BANDS.map((band) => /* @__PURE__ */ React.createElement("option", { key: band.id, value: band.id }, band.label)))), /* @__PURE__ */ React.createElement("input", { type: "text", value: editNote, onChange: (e) => setEditNote(e.target.value), placeholder: "Note", className: "w-full bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => onSaveEdit({ tut: parseInt(editTut, 10) || entry.tut, band: editBand, note: editNote.trim() }), className: "flex-1 py-1.5 rounded-md bg-orange-500 text-neutral-950 text-sm font-medium flex items-center justify-center gap-1" }, /* @__PURE__ */ React.createElement(Check, { size: 14 }), " Save"), /* @__PURE__ */ React.createElement("button", { onClick: onCancelEdit, className: "flex-1 py-1.5 rounded-md bg-neutral-800 text-neutral-300 text-sm flex items-center justify-center gap-1" }, /* @__PURE__ */ React.createElement(X, { size: 14 }), " Cancel")));
+    }
+    return /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "rounded-full border border-black/20", style: { width: 10, height: 10, flexShrink: 0, background: b.swatch } }), /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500 text-[10px] font-semibold uppercase" }, b.short || ""), /* @__PURE__ */ React.createElement("span", { className: "font-mono font-semibold text-neutral-50" }, fmtVal(entry.tut, unit)), /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500 text-xs" }, fmtTime(entry.timestamp)), entry.note && /* @__PURE__ */ React.createElement("span", { className: "text-neutral-400 text-xs truncate flex-1" }, entry.note), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-1 shrink-0" }, confirming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: onConfirmDelete, className: "text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md" }, "Delete"), /* @__PURE__ */ React.createElement("button", { onClick: onCancelDelete, className: "text-neutral-400 text-xs px-2 py-1 bg-neutral-800 rounded-md" }, "Cancel")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: onEdit, className: "text-neutral-500 p-1" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), /* @__PURE__ */ React.createElement("button", { onClick: onDelete, className: "text-neutral-500 p-1" }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 })))));
+  }
+  function RenameInline({ initial, onSave, onCancel }) {
+    const [val, setVal] = useState(initial);
+    return /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-1" }, /* @__PURE__ */ React.createElement("input", { autoFocus: true, type: "text", value: val, onChange: (e) => setVal(e.target.value), className: "flex-1 bg-neutral-950 border border-orange-500 rounded-md px-2 py-1 text-sm text-neutral-100", style: { borderWidth: 1 } }), /* @__PURE__ */ React.createElement("button", { onClick: () => onSave(val), className: "text-emerald-400 p-1" }, /* @__PURE__ */ React.createElement(Check, { size: 16 })), /* @__PURE__ */ React.createElement("button", { onClick: onCancel, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(X, { size: 16 })));
+  }
+  function LogRoutine(props) {
+    const {
+      routine,
+      entries,
+      viewDate,
+      setViewDate,
+      selectedBand,
+      setSelectedBand,
+      formState,
+      setFormState,
+      timers,
+      startTimer,
+      stopTimer,
+      resetTimer,
+      logSet,
+      getExerciseEntries,
+      defaultBandFor,
+      expandedExId,
+      setExpandedExId,
+      deleteEntry,
+      confirmDelete,
+      setConfirmDelete,
+      editingEntry,
+      setEditingEntry,
+      saveEditedEntry,
+      buildWorkoutSummary,
+      copySummary,
+      copiedFlash,
+      sessionOverrides,
+      setSessionOverrideField
+    } = props;
+    const isToday = viewDate === todayStr();
+    const liveExercises = routine.exercises.filter((ex) => !ex.archived);
+    const viewDateEntries = entries.filter((e) => e.routineId === routine.id && toDateStr(new Date(e.timestamp)) === viewDate);
+    const summaryKey = `log-${viewDate}-${routine.id}`;
+    const overrideKey = `${(/* @__PURE__ */ new Date(`${viewDate}T00:00:00`)).toDateString()}|${routine.id}`;
+    const override = sessionOverrides[overrideKey] || {};
+    const sortedView = [...viewDateEntries].sort((a, b) => a.timestamp - b.timestamp);
+    const defaultStartInput = sortedView.length ? tsToInputTime(sortedView[0].timestamp) : "";
+    const defaultFinishInput = sortedView.length ? tsToInputTime(sortedView[sortedView.length - 1].timestamp) : "";
+    const startDisplay = override.start ? inputTimeTo12h(override.start) : null;
+    const finishDisplay = override.finish ? inputTimeTo12h(override.finish) : null;
+    return /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-xl px-2 py-1.5" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setViewDate((d) => addDays(d, -1)), className: "p-1.5 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 18 })), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-semibold text-neutral-50" }, fmtDayLabel(viewDate)), /* @__PURE__ */ React.createElement("button", { onClick: () => setViewDate((d) => d === todayStr() ? d : addDays(d, 1)), disabled: isToday, className: `p-1.5 ${isToday ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 18 }))), !isToday && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500 px-1" }, "Viewing a past day \u2014 switch back to Today to log new sets."), viewDateEntries.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, fmtDayLabel(viewDate), "'s session summary"), /* @__PURE__ */ React.createElement("button", { onClick: () => copySummary(summaryKey, routine, viewDateEntries, startDisplay, finishDisplay), className: "text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-500 text-neutral-950" }, copiedFlash === summaryKey ? "Copied!" : "Copy")), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 mb-2" }, /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-1.5 text-xs text-neutral-400" }, "Start", /* @__PURE__ */ React.createElement("input", { type: "time", value: override.start || defaultStartInput, onChange: (e) => setSessionOverrideField(overrideKey, "start", e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-1.5 py-1 text-xs text-neutral-200" })), /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-1.5 text-xs text-neutral-400" }, "Finish", /* @__PURE__ */ React.createElement("input", { type: "time", value: override.finish || defaultFinishInput, onChange: (e) => setSessionOverrideField(overrideKey, "finish", e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-1.5 py-1 text-xs text-neutral-200" }))), /* @__PURE__ */ React.createElement("pre", { className: "text-xs text-neutral-300 whitespace-pre-wrap font-mono leading-relaxed" }, buildWorkoutSummary(routine, viewDateEntries, startDisplay, finishDisplay))), liveExercises.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm" }, "No movements in this routine yet.") : liveExercises.map((ex) => /* @__PURE__ */ React.createElement(
+      ExerciseCard,
+      {
+        key: ex.id,
+        ex,
+        routine,
+        viewDate,
+        isToday,
+        selectedBand,
+        setSelectedBand,
+        formState,
+        setFormState,
+        timers,
+        startTimer,
+        stopTimer,
+        resetTimer,
+        logSet,
+        getExerciseEntries,
+        defaultBandFor,
+        expandedExId,
+        setExpandedExId,
+        deleteEntry,
+        confirmDelete,
+        setConfirmDelete,
+        editingEntry,
+        setEditingEntry,
+        saveEditedEntry
+      }
+    )));
+  }
+  function ExerciseCard(props) {
+    const {
+      ex,
+      routine,
+      viewDate,
+      isToday,
+      selectedBand,
+      setSelectedBand,
+      formState,
+      setFormState,
+      timers,
+      startTimer,
+      stopTimer,
+      resetTimer,
+      logSet,
+      getExerciseEntries,
+      defaultBandFor,
+      expandedExId,
+      setExpandedExId,
+      deleteEntry,
+      confirmDelete,
+      setConfirmDelete,
+      editingEntry,
+      setEditingEntry,
+      saveEditedEntry
+    } = props;
+    const unit = ex.unit || "seconds";
+    const band = selectedBand[ex.id] || defaultBandFor(ex.id);
+    const bandEntries = getExerciseEntries(ex.id, band);
+    const stats = computeStats(bandEntries);
+    const viewDateEntries = getExerciseEntries(ex.id).filter((e) => toDateStr(new Date(e.timestamp)) === viewDate);
+    const timer = timers[ex.id] || { phase: "idle", seconds: 0, countdown: 5 };
+    const fs = formState[ex.id] || { tut: "", note: "" };
+    const isExpanded = expandedExId === ex.id;
+    return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setExpandedExId((prev) => prev === ex.id ? null : ex.id) }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, ex.name), isExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-500" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-500" })), isExpanded && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mb-3 overflow-x-auto", style: { paddingBottom: 4 } }, BANDS.map((b) => {
+      const isSelected = band === b.id;
+      return /* @__PURE__ */ React.createElement("button", { key: b.id, onClick: () => setSelectedBand((prev) => ({ ...prev, [ex.id]: b.id })), className: `shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border-2 text-xs font-semibold bg-orange-500 ${isSelected ? "border-emerald-400" : "border-orange-500"}` }, /* @__PURE__ */ React.createElement("span", { className: "rounded-full border border-black/30", style: { width: 16, height: 16, background: b.swatch } }), /* @__PURE__ */ React.createElement("span", { className: isSelected ? "text-emerald-400" : "text-neutral-950" }, b.label));
+    })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-3" }, /* @__PURE__ */ React.createElement(StatBox, { label: "PR", value: fmtVal(stats.pr, unit) }), /* @__PURE__ */ React.createElement(StatBox, { label: "Last", value: fmtVal(stats.last, unit) }), /* @__PURE__ */ React.createElement(StatBox, { label: "Target", value: stats.targetLow !== null ? `${stats.targetLow}\u2013${fmtVal(stats.targetHigh, unit)}` : "\u2014", accent: true })), isToday && /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-950 border border-neutral-800 rounded-xl p-3 space-y-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1" }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-500" }, unit === "reps" ? "Reps" : "Time under tension"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mt-1" }, unit === "seconds" && /* @__PURE__ */ React.createElement("button", { onClick: () => timer.phase === "idle" ? startTimer(ex.id) : stopTimer(ex.id), className: `shrink-0 w-10 h-10 flex items-center justify-center rounded-lg font-bold text-lg ${timer.phase !== "idle" ? "bg-orange-500 text-neutral-950" : "bg-neutral-900 border border-neutral-800 text-neutral-300"}` }, timer.phase === "countdown" ? timer.countdown : /* @__PURE__ */ React.createElement(Timer, { size: 16 })), unit === "seconds" && (timer.seconds > 0 || fs.tut) && timer.phase === "idle" && /* @__PURE__ */ React.createElement("button", { onClick: () => {
+      resetTimer(ex.id);
+      setFormState((prev) => ({ ...prev, [ex.id]: { ...fs, tut: "" } }));
+    }, className: "shrink-0 w-10 h-10 flex items-center justify-center rounded-lg bg-neutral-900 border border-neutral-800 text-neutral-500" }, /* @__PURE__ */ React.createElement(RotateCcw, { size: 15 })), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "text",
+        inputMode: "numeric",
+        placeholder: unit === "reps" ? "reps" : "seconds",
+        value: unit === "seconds" && timer.phase === "running" ? String(timer.seconds) : unit === "seconds" && timer.phase === "countdown" ? `Get ready\u2026 ${timer.countdown}` : fs.tut,
+        disabled: unit === "seconds" && timer.phase !== "idle",
+        onChange: (e) => setFormState((prev) => ({ ...prev, [ex.id]: { ...fs, tut: e.target.value } })),
+        className: `w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-lg font-bold font-mono ${unit === "seconds" && timer.phase !== "idle" ? "text-orange-500" : "text-neutral-50"}`
+      }
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => {
+          if (unit === "seconds" && timer.phase === "running") {
+            const seconds = timer.seconds;
+            stopTimer(ex.id);
+            logSet(routine.id, ex.id, seconds);
+          } else logSet(routine.id, ex.id);
+        },
+        disabled: !fs.tut && !timer.seconds,
+        className: `shrink-0 w-10 h-10 flex items-center justify-center rounded-lg ${!fs.tut && !timer.seconds ? "bg-neutral-800 text-neutral-500" : "bg-orange-500 text-neutral-950"}`
+      },
+      /* @__PURE__ */ React.createElement(ListChecks, { size: 16 })
+    )))), /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "Note (optional)", value: fs.note || "", onChange: (e) => setFormState((prev) => ({ ...prev, [ex.id]: { ...fs, note: e.target.value } })), className: "w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200" })), viewDateEntries.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-3 space-y-1.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-wide text-neutral-500" }, fmtDayLabel(viewDate)), viewDateEntries.map((e) => /* @__PURE__ */ React.createElement(EntryRow, { key: e.id, entry: e, unit, onEdit: () => setEditingEntry(e.id), onDelete: () => setConfirmDelete(e.id), confirming: confirmDelete === e.id, onConfirmDelete: () => deleteEntry(e.id), onCancelDelete: () => setConfirmDelete(null), editing: editingEntry === e.id, onSaveEdit: (patch) => saveEditedEntry(e.id, patch), onCancelEdit: () => setEditingEntry(null) })))));
+  }
+  function DailyView(props) {
+    const {
+      dailyForm,
+      setDailyForm,
+      submitDailyForm,
+      computeMetricStats,
+      getMetricSeries,
+      expandedMetricKey,
+      setExpandedMetricKey,
+      dailyEditing,
+      setDailyEditing,
+      dailyConfirmDelete,
+      setDailyConfirmDelete,
+      saveDailyEntry,
+      clearDailyValue,
+      moveDailyValue,
+      pendingDailyOverwrite,
+      commitDailyForm,
+      setPendingDailyOverwrite,
+      applyMorningDate,
+      applyNutritionDate
+    } = props;
+    return /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, pendingDailyOverwrite && /* @__PURE__ */ React.createElement("div", { className: "bg-red-500/10 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm text-neutral-50 font-medium mb-1" }, "This will overwrite existing values"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400 mb-3" }, "These fields already have a value saved for that date. Saving will replace them."), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5 mb-3" }, pendingDailyOverwrite.conflicts.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "flex items-center justify-between text-sm bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-200" }, c.label, " ", /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500 text-xs" }, "(", fmtDateShort(dateToTs(c.date)), ")")), /* @__PURE__ */ React.createElement("span", { className: "font-mono text-xs" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500" }, c.oldDisplay), /* @__PURE__ */ React.createElement("span", { className: "text-neutral-400 mx-1" }, "\u2192"), /* @__PURE__ */ React.createElement("span", { className: "text-orange-500" }, c.newDisplay))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => commitDailyForm(pendingDailyOverwrite.morningValues, pendingDailyOverwrite.nutritionValues), className: "flex-1 py-2 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Overwrite"), /* @__PURE__ */ React.createElement("button", { onClick: () => setPendingDailyOverwrite(null), className: "flex-1 py-2 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Cancel"))), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-1" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "This morning"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement("button", { onClick: () => applyMorningDate(addDays(dailyForm.date, -1)), className: "p-1 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 })), /* @__PURE__ */ React.createElement("input", { type: "date", value: dailyForm.date, onChange: (e) => applyMorningDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => applyMorningDate(dailyForm.date === todayStr() ? dailyForm.date : addDays(dailyForm.date, 1)), disabled: dailyForm.date === todayStr(), className: `p-1 ${dailyForm.date === todayStr() ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 })))), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-neutral-400 mb-3" }, "Weight, sleep, sleep score, readiness, HRV, and RHR \u2014 today's reading. Existing values for the selected date are shown automatically."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-4" }, METRIC_DEFS.filter((m) => m.group === "morning").map((m) => /* @__PURE__ */ React.createElement("div", { key: m.key }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, m.label, " ", m.unit && `(${m.unit})`), m.inputType === "time" ? /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "h:mm", value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }) : /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: m.step, value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-1 pt-3 border-t border-neutral-800" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Yesterday's totals"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement("button", { onClick: () => applyNutritionDate(addDays(dailyForm.nutritionDate, -1)), className: "p-1 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 })), /* @__PURE__ */ React.createElement("input", { type: "date", value: dailyForm.nutritionDate, onChange: (e) => applyNutritionDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => applyNutritionDate(dailyForm.nutritionDate === todayStr() ? dailyForm.nutritionDate : addDays(dailyForm.nutritionDate, 1)), disabled: dailyForm.nutritionDate === todayStr(), className: `p-1 ${dailyForm.nutritionDate === todayStr() ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 })))), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-neutral-400 mb-3" }, "Steps, protein, and calories always post to this date, not today's. Existing values shown automatically."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2" }, METRIC_DEFS.filter((m) => m.group === "nutrition").map((m) => /* @__PURE__ */ React.createElement("div", { key: m.key }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, m.label, " ", m.unit && `(${m.unit})`), /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: m.step, value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })))), /* @__PURE__ */ React.createElement("button", { onClick: submitDailyForm, className: "w-full mt-4 py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, "Save")), METRIC_DEFS.map((m) => /* @__PURE__ */ React.createElement(
+      MetricCard,
+      {
+        key: m.key,
+        def: m,
+        stats: computeMetricStats(m.key),
+        series: getMetricSeries(m.key),
+        expanded: expandedMetricKey === m.key,
+        onToggle: () => setExpandedMetricKey((prev) => prev === m.key ? null : m.key),
+        dailyEditing,
+        setDailyEditing,
+        dailyConfirmDelete,
+        setDailyConfirmDelete,
+        saveDailyEntry,
+        clearDailyValue,
+        moveDailyValue
+      }
+    )));
+  }
+  function MetricCard({ def, stats, series, expanded, onToggle, dailyEditing, setDailyEditing, dailyConfirmDelete, setDailyConfirmDelete, saveDailyEntry, clearDailyValue, moveDailyValue }) {
+    const [historyExpanded, setHistoryExpanded] = useState(false);
+    const chartData = series.map((s) => ({ date: fmtDateShort(dateToTs(s.date)), value: s.value }));
+    const fmt = (v) => {
+      if (v === null || v === void 0) return "\u2014";
+      if (def.key === "sleep") return formatSleepHours(v);
+      return `${v.toFixed(def.decimals)}${def.unit ? def.unit : ""}`;
+    };
+    const deltaStr = stats.delta === null ? "\u2014" : def.key === "sleep" ? `${stats.delta > 0 ? "+" : stats.delta < 0 ? "\u2212" : ""}${formatSleepHours(Math.abs(stats.delta))}` : `${stats.delta > 0 ? "+" : stats.delta < 0 ? "\u2212" : ""}${Math.abs(stats.delta).toFixed(def.decimals)}${def.unit}`;
+    return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: onToggle }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, def.label), expanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-400" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-400" })), expanded && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-3" }, /* @__PURE__ */ React.createElement(StatBox, { label: "Latest", value: fmt(stats.latest) }), /* @__PURE__ */ React.createElement(StatBox, { label: "7-Day Avg", value: fmt(stats.avg7) }), /* @__PURE__ */ React.createElement(StatBox, { label: "+/- Avg", value: deltaStr, accent: true })), chartData.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { height: 128 }, className: "mb-3" }, /* @__PURE__ */ React.createElement(ResponsiveContainer, { width: "100%", height: "100%", minWidth: 0, minHeight: 0 }, /* @__PURE__ */ React.createElement(LineChart, { data: chartData, margin: { top: 4, right: 4, left: -30, bottom: 0 } }, /* @__PURE__ */ React.createElement(CartesianGrid, { strokeDasharray: "3 3", stroke: "#27272a" }), /* @__PURE__ */ React.createElement(XAxis, { dataKey: "date", stroke: "#71717a", fontSize: 10 }), /* @__PURE__ */ React.createElement(YAxis, { stroke: "#71717a", fontSize: 10, domain: ["auto", "auto"] }), /* @__PURE__ */ React.createElement(Tooltip, { contentStyle: { background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8, fontSize: 12 }, labelStyle: { color: "#e4e4e7" } }), /* @__PURE__ */ React.createElement(Line, { type: "monotone", dataKey: "value", stroke: "#f97316", strokeWidth: 2, dot: { r: 2, fill: "#f97316" } })))), series.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400" }, "No entries yet.") : /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "History"), (() => {
+      const reversed = [...series].reverse();
+      const visible = historyExpanded ? reversed.slice(0, 14) : reversed.slice(0, 5);
+      return visible.map((s) => {
+        const rowKey = `${s.date}|${def.key}`;
+        return /* @__PURE__ */ React.createElement(
+          DailyHistoryRow,
           {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
+            key: rowKey,
+            date: s.date,
+            value: s.value,
+            def,
+            isEditing: dailyEditing === rowKey,
+            isConfirming: dailyConfirmDelete === rowKey,
+            onEdit: () => setDailyEditing(rowKey),
+            onCancelEdit: () => setDailyEditing(null),
+            onSave: (newVal, newDate) => {
+              if (newDate && newDate !== s.date) moveDailyValue(s.date, def.key, newDate, newVal);
+              else saveDailyEntry(s.date, { [def.key]: newVal });
+              setDailyEditing(null);
             },
-            body: JSON.stringify({
-              values: [["test_id_123", "Test Routine (delete me)", "99"]],
-            }),
+            onDelete: () => setDailyConfirmDelete(rowKey),
+            onConfirmDelete: () => {
+              clearDailyValue(s.date, def.key);
+              setDailyConfirmDelete(null);
+            },
+            onCancelDelete: () => setDailyConfirmDelete(null)
           }
         );
-        const data = await res.json();
-        statusEl.textContent = res.ok ? "Write succeeded — check the Sheet." : `Write failed (${res.status}).`;
-        log(data);
-      } catch (e) {
-        statusEl.textContent = "Write error.";
-        log(String(e));
+      });
+    })(), series.length > 5 && /* @__PURE__ */ React.createElement("button", { onClick: () => setHistoryExpanded((prev) => !prev), className: "w-full text-center text-xs text-neutral-400 py-1.5" }, historyExpanded ? "Show less" : `Show more (${Math.min(series.length, 14) - 5} more)`))));
+  }
+  function DailyHistoryRow({ date, value, def, isEditing, isConfirming, onEdit, onCancelEdit, onSave, onDelete, onConfirmDelete, onCancelDelete }) {
+    const isSleep = def.key === "sleep";
+    const [val, setVal] = useState(isSleep ? formatSleepHours(value) : String(value));
+    const [editDate, setEditDate] = useState(date);
+    if (isEditing) {
+      return /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 bg-neutral-900 border border-orange-500 rounded-lg px-2.5 py-2 flex-wrap", style: { borderWidth: 1 } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: editDate, onChange: (e) => setEditDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-1.5 py-1 text-xs text-neutral-200", style: { width: 112 } }), /* @__PURE__ */ React.createElement("input", { type: isSleep ? "text" : "number", placeholder: isSleep ? "h:mm" : void 0, value: val, onChange: (e) => setVal(e.target.value), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-50", style: { minWidth: 64 } }), /* @__PURE__ */ React.createElement("button", { onClick: () => onSave(isSleep ? parseSleepInput(val) : parseFloat(val), editDate), className: "text-emerald-400 p-1" }, /* @__PURE__ */ React.createElement(Check, { size: 15 })), /* @__PURE__ */ React.createElement("button", { onClick: onCancelEdit, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(X, { size: 15 })));
+    }
+    return /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-400", style: { width: 60, flexShrink: 0 } }, fmtDateShort(dateToTs(date))), /* @__PURE__ */ React.createElement("span", { className: "font-mono font-semibold text-neutral-50" }, isSleep ? formatSleepHours(value) : `${value.toFixed(def.decimals)}${def.unit}`), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-1 shrink-0" }, isConfirming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: onConfirmDelete, className: "text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md" }, "Delete"), /* @__PURE__ */ React.createElement("button", { onClick: onCancelDelete, className: "text-neutral-400 text-xs px-2 py-1 bg-neutral-800 rounded-md" }, "Cancel")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: onEdit, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), /* @__PURE__ */ React.createElement("button", { onClick: onDelete, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 })))));
+  }
+  function HistoryView(props) {
+    const {
+      routines,
+      entries,
+      findExercise,
+      historyOpenDates,
+      setHistoryOpenDates,
+      deleteEntry,
+      confirmDelete,
+      setConfirmDelete,
+      editingEntry,
+      setEditingEntry,
+      saveEditedEntry,
+      buildWorkoutSummary,
+      copySummary,
+      copiedFlash,
+      sessionOverrides,
+      setSessionOverrideField
+    } = props;
+    const grouped = useMemo(() => {
+      const map = {};
+      for (const e of entries) {
+        const key = new Date(e.timestamp).toDateString();
+        if (!map[key]) map[key] = [];
+        map[key].push(e);
       }
-    };
-  </script>
+      return Object.entries(map).map(([key, es]) => ({ key, entries: es.sort((a, b) => b.timestamp - a.timestamp) })).sort((a, b) => b.entries[0].timestamp - a.entries[0].timestamp);
+    }, [entries]);
+    if (grouped.length === 0) return /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm" }, "No sets logged yet. Sets you log will show up here, grouped by day.");
+    return /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, grouped.map(({ key, entries: dayEntries }) => {
+      const open = historyOpenDates[key] !== false;
+      const byRoutine = {};
+      for (const e of dayEntries) {
+        if (!byRoutine[e.routineId]) byRoutine[e.routineId] = [];
+        byRoutine[e.routineId].push(e);
+      }
+      return /* @__PURE__ */ React.createElement("div", { key, className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setHistoryOpenDates((prev) => ({ ...prev, [key]: !open })) }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, fmtDate(dayEntries[0].timestamp)), /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500 text-xs" }, dayEntries.length, " sets")), open && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4 space-y-4" }, Object.entries(byRoutine).map(([routineId, routineEntries]) => {
+        const routine = routines.find((r) => r.id === routineId);
+        const summaryKey = `hist-${key}-${routineId}`;
+        const overrideKey = `${key}|${routineId}`;
+        const override = sessionOverrides[overrideKey] || {};
+        const sortedEntries = [...routineEntries].sort((a, b) => a.timestamp - b.timestamp);
+        const defaultStartInput = tsToInputTime(sortedEntries[0].timestamp);
+        const defaultFinishInput = tsToInputTime(sortedEntries[sortedEntries.length - 1].timestamp);
+        const startDisplay = override.start ? inputTimeTo12h(override.start) : null;
+        const finishDisplay = override.finish ? inputTimeTo12h(override.finish) : null;
+        return /* @__PURE__ */ React.createElement("div", { key: routineId }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-sm font-semibold text-neutral-200" }, routine ? routine.name : "Deleted routine"), /* @__PURE__ */ React.createElement("button", { onClick: () => copySummary(summaryKey, routine, routineEntries, startDisplay, finishDisplay), className: "text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-500 text-neutral-950" }, copiedFlash === summaryKey ? "Copied!" : "Copy summary")), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 mb-2" }, /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-1.5 text-xs text-neutral-400" }, "Start", /* @__PURE__ */ React.createElement("input", { type: "time", value: override.start || defaultStartInput, onChange: (e) => setSessionOverrideField(overrideKey, "start", e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-1.5 py-1 text-xs text-neutral-200" })), /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-1.5 text-xs text-neutral-400" }, "Finish", /* @__PURE__ */ React.createElement("input", { type: "time", value: override.finish || defaultFinishInput, onChange: (e) => setSessionOverrideField(overrideKey, "finish", e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-1.5 py-1 text-xs text-neutral-200" }))), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, routineEntries.map((e) => {
+          const ex = findExercise(e.exerciseId);
+          return /* @__PURE__ */ React.createElement("div", { key: e.id }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-neutral-500 mt-2 mb-1" }, ex ? ex.name : "Deleted exercise"), /* @__PURE__ */ React.createElement(EntryRow, { entry: e, unit: (ex == null ? void 0 : ex.unit) || "seconds", onEdit: () => setEditingEntry(e.id), onDelete: () => setConfirmDelete(e.id), confirming: confirmDelete === e.id, onConfirmDelete: () => deleteEntry(e.id), onCancelDelete: () => setConfirmDelete(null), editing: editingEntry === e.id, onSaveEdit: (patch) => saveEditedEntry(e.id, patch), onCancelEdit: () => setEditingEntry(null) }));
+        })));
+      })));
+    }));
+  }
+  function TrendsView({ routines, allExercises, trendExerciseIds, setTrendExerciseIds, getExerciseEntries }) {
+    if (allExercises.length === 0) return /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm" }, "Add exercises and log a few sets to see trends.");
+    const defaultIds = allExercises[0] ? [allExercises[0].id] : [];
+    const selectedIds = trendExerciseIds === null ? defaultIds : trendExerciseIds;
+    const selectedExercises = selectedIds.map((id) => allExercises.find((e) => e.id === id)).filter(Boolean);
+    function toggleEx(id) {
+      setTrendExerciseIds((prev) => {
+        const base = prev === null ? defaultIds : prev;
+        return base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
+      });
+    }
+    const dateRows = {};
+    for (const ex of selectedExercises) {
+      const exEntries = getExerciseEntries(ex.id).slice().sort((a, b) => a.timestamp - b.timestamp);
+      const daily = groupEntriesByDay(exEntries);
+      for (const d of daily) {
+        const dayKey = new Date(d.timestamp).toDateString();
+        if (!dateRows[dayKey]) dateRows[dayKey] = { timestamp: d.timestamp };
+        dateRows[dayKey][ex.id] = d.total;
+      }
+    }
+    const chartData = Object.values(dateRows).sort((a, b) => a.timestamp - b.timestamp).map((row) => ({ ...row, date: fmtDateShort(row.timestamp) }));
+    const units = new Set(selectedExercises.map((ex) => ex.unit || "seconds"));
+    const sharedUnit = units.size === 1 ? [...units][0] : null;
+    return /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-wide text-neutral-400 mb-2" }, "Compare movements \u2014 tap to add or remove"), routines.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500 mb-1" }, r.name), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5" }, r.exercises.map((ex) => {
+      const active = selectedIds.includes(ex.id);
+      return /* @__PURE__ */ React.createElement("button", { key: ex.id, onClick: () => toggleEx(ex.id), className: `px-2.5 py-1 rounded-full text-xs font-medium border ${active ? "bg-orange-500 border-orange-500 text-neutral-950" : "bg-neutral-950 border-neutral-800 text-neutral-300"}` }, ex.name, ex.archived ? " (hidden)" : "");
+    }))))), selectedExercises.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm" }, "Tap a movement above to see its trend.") : chartData.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm" }, "No sets logged yet for these movements.") : /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-3" }, /* @__PURE__ */ React.createElement("div", { style: { height: 256 } }, /* @__PURE__ */ React.createElement(ResponsiveContainer, { width: "100%", height: "100%", minWidth: 0, minHeight: 0 }, /* @__PURE__ */ React.createElement(LineChart, { data: chartData, margin: { top: 8, right: 8, left: -20, bottom: 0 } }, /* @__PURE__ */ React.createElement(CartesianGrid, { strokeDasharray: "3 3", stroke: "#27272a" }), /* @__PURE__ */ React.createElement(XAxis, { dataKey: "date", stroke: "#71717a", fontSize: 11 }), /* @__PURE__ */ React.createElement(YAxis, { stroke: "#71717a", fontSize: 11, unit: sharedUnit === "seconds" ? "s" : "" }), /* @__PURE__ */ React.createElement(Tooltip, { contentStyle: { background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8, fontSize: 12 }, labelStyle: { color: "#e4e4e7" }, formatter: (value, name) => {
+      const ex = selectedExercises.find((e) => e.id === name);
+      return [fmtVal(value, ex ? ex.unit || "seconds" : "seconds"), ex ? ex.name : name];
+    } }), /* @__PURE__ */ React.createElement(Legend, { wrapperStyle: { fontSize: 11, color: "#71717a" } }), selectedExercises.map((ex, i) => /* @__PURE__ */ React.createElement(Line, { key: ex.id, type: "monotone", dataKey: ex.id, name: ex.name, stroke: TREND_PALETTE[i % TREND_PALETTE.length], strokeWidth: 2, connectNulls: false, dot: { r: 3 } }))))), !sharedUnit && /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-neutral-500 px-1 mt-1" }, "Comparing seconds and reps together \u2014 axis is unitless since the movements use different units."), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-neutral-500 px-1 mt-1" }, "Each point is the combined total for all sets logged that day.")), selectedExercises.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, selectedExercises.map((ex, i) => {
+      const unit = ex.unit || "seconds";
+      const exEntries = getExerciseEntries(ex.id);
+      const lastBand = exEntries.length ? [...exEntries].sort((a, b) => b.timestamp - a.timestamp)[0].band : "wp";
+      const stats = computeStats(getExerciseEntries(ex.id, lastBand));
+      return /* @__PURE__ */ React.createElement("div", { key: ex.id, className: "bg-neutral-900 border border-neutral-800 rounded-xl p-3 flex items-center gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "rounded-full", style: { width: 10, height: 10, flexShrink: 0, backgroundColor: TREND_PALETTE[i % TREND_PALETTE.length] } }), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-medium text-neutral-50 flex-1 truncate" }, ex.name), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-400" }, "PR ", fmtVal(stats.pr, unit)), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-400" }, "Last ", fmtVal(stats.last, unit)), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-emerald-400" }, "Target ", stats.targetLow !== null ? `${stats.targetLow}\u2013${fmtVal(stats.targetHigh, unit)}` : "\u2014"));
+    })));
+  }
+  function ManageView(props) {
+    const {
+      routines,
+      manageNewRoutineName,
+      setManageNewRoutineName,
+      addRoutine,
+      deleteRoutine,
+      renameRoutine,
+      addExercise,
+      renameExercise,
+      toggleArchive,
+      toggleUnit,
+      moveExercise,
+      manageNewExName,
+      setManageNewExName,
+      manageNewExUnit,
+      setManageNewExUnit,
+      manageRenaming,
+      setManageRenaming,
+      confirmDelete,
+      setConfirmDelete,
+      expandedRoutine,
+      setExpandedRoutine,
+      loadAllData
+    } = props;
+    return /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, routines.map((r) => {
+      const isExpanded = expandedRoutine[r.id] === true;
+      const liveCount = r.exercises.filter((ex) => !ex.archived).length;
+      return /* @__PURE__ */ React.createElement("div", { key: r.id, className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, manageRenaming === `routine-${r.id}` ? /* @__PURE__ */ React.createElement(RenameInline, { initial: r.name, onSave: (name) => renameRoutine(r.id, name), onCancel: () => setManageRenaming(null) }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => setExpandedRoutine((prev) => ({ ...prev, [r.id]: prev[r.id] !== true })), className: "flex items-center gap-2 min-w-0 flex-1 text-left" }, isExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 16, className: "text-neutral-400 shrink-0" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 16, className: "text-neutral-400 shrink-0" }), /* @__PURE__ */ React.createElement("span", { className: "font-bold text-neutral-50 truncate" }, r.name), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-500 shrink-0" }, liveCount, " movement", liveCount === 1 ? "" : "s")), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setManageRenaming(`routine-${r.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 14 })), confirmDelete === `routine-${r.id}` ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => deleteRoutine(r.id), className: "text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md" }, "Confirm"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDelete(null), className: "text-neutral-400 text-xs px-2 py-1 bg-neutral-800 rounded-md" }, "Cancel")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDelete(`routine-${r.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }))))), isExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, r.exercises.map((ex, idx) => /* @__PURE__ */ React.createElement("div", { key: ex.id, className: `flex items-center justify-between rounded-lg px-2 py-2 border border-neutral-800 ${ex.archived ? "bg-neutral-950/50" : "bg-neutral-950"}` }, manageRenaming === `ex-${ex.id}` ? /* @__PURE__ */ React.createElement(RenameInline, { initial: ex.name, onSave: (name) => renameExercise(r.id, ex.id, name), onCancel: () => setManageRenaming(null) }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col shrink-0 text-neutral-500" }, /* @__PURE__ */ React.createElement("button", { onClick: () => moveExercise(r.id, ex.id, -1), disabled: idx === 0, className: idx === 0 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronUp, { size: 14 })), /* @__PURE__ */ React.createElement("button", { onClick: () => moveExercise(r.id, ex.id, 1), disabled: idx === r.exercises.length - 1, className: idx === r.exercises.length - 1 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronDown, { size: 14 }))), /* @__PURE__ */ React.createElement("span", { className: `text-sm truncate ${ex.archived ? "text-neutral-600 line-through" : "text-neutral-200"}` }, ex.name)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => toggleUnit(r.id, ex.id), className: "text-[10px] font-semibold px-1.5 py-1 rounded-md bg-neutral-900 border border-neutral-800 text-neutral-400 uppercase" }, (ex.unit || "seconds") === "reps" ? "Reps" : "Time"), /* @__PURE__ */ React.createElement("button", { onClick: () => setManageRenaming(`ex-${ex.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), ex.archived ? /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchive(r.id, ex.id, false), className: "text-emerald-400 p-1.5 flex items-center gap-1 text-xs font-medium" }, /* @__PURE__ */ React.createElement(Eye, { size: 13 }), " Show") : /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchive(r.id, ex.id, true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(EyeOff, { size: 13 }))))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-3" }, /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "New exercise", value: manageNewExName[r.id] || "", onChange: (e) => setManageNewExName((prev) => ({ ...prev, [r.id]: e.target.value })), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("div", { className: "flex shrink-0 rounded-lg overflow-hidden border border-neutral-800" }, ["seconds", "reps"].map((u) => /* @__PURE__ */ React.createElement("button", { key: u, onClick: () => setManageNewExUnit((prev) => ({ ...prev, [r.id]: u })), className: `px-2 py-2 text-[11px] font-semibold uppercase ${(manageNewExUnit[r.id] || "seconds") === u ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 text-neutral-400"}` }, u === "reps" ? "Reps" : "Time"))), /* @__PURE__ */ React.createElement("button", { onClick: () => addExercise(r.id), className: "w-10 h-10 shrink-0 flex items-center justify-center rounded-lg bg-neutral-800 text-neutral-200" }, /* @__PURE__ */ React.createElement(Plus, { size: 16 })))));
+    }), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-300 mb-2" }, "New routine"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "e.g. Leg Day", value: manageNewRoutineName, onChange: (e) => setManageNewRoutineName(e.target.value), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: addRoutine, className: "px-4 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Add"))), /* @__PURE__ */ React.createElement("button", { onClick: loadAllData, className: "w-full py-2.5 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Reload from Sheet"));
+  }
+  try {
+    window.__appBooted = true;
+    ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(App, null));
+  } catch (e) {
+    document.getElementById("boot-error").textContent = "Render error: " + e.message;
+    console.error(e);
+  }
+})();
+
+</script>
 </body>
 </html>
