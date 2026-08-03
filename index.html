@@ -180,9 +180,10 @@
   const { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } = window.Recharts;
   const CLIENT_ID = "242814993883-qubuj093i89cliq097qb89em016h5cfe.apps.googleusercontent.com";
   const SPREADSHEET_ID = "19JalMbLch7TlUqduehJWctz0EabC1akRuoEgLpDG2xU";
-  const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
-  const TOKEN_KEY = "x3log_access_token";
-  const TOKEN_EXPIRY_KEY = "x3log_token_expiry";
+  const SCOPES = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly https://www.googleapis.com/auth/googlehealth.sleep.readonly";
+  const TOKEN_KEY = "x3log_access_token_v2";
+  const TOKEN_EXPIRY_KEY = "x3log_token_expiry_v2";
+  const HEALTH_API_BASE = "https://health.googleapis.com/v4";
   const BANDS = [
     { id: "none", label: "None", short: "\u2014", swatch: "transparent", dot: "#9CA3AF" },
     { id: "wp", label: "White", short: "W", swatch: "#F4F2EC", dot: "#F4F2EC" },
@@ -290,6 +291,58 @@
     const m = Math.round((decimalHours - h) * 60);
     return `${h}:${String(m).padStart(2, "0")}`;
   }
+  function dateObjToStr(d) {
+    if (!d) return null;
+    return `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day).padStart(2, "0")}`;
+  }
+  async function healthApiList(accessToken, dataType, pageSize = 15) {
+    const res = await fetch(`${HEALTH_API_BASE}/users/me/dataTypes/${dataType}/dataPoints?pageSize=${pageSize}`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!res.ok) throw new Error(`Google Health (${dataType}) failed (${res.status}): ${await res.text()}`);
+    const data = await res.json();
+    return data.dataPoints || [];
+  }
+  async function fetchHealthDataForDate(accessToken, dateStr) {
+    var _a;
+    const result = { hrv: null, rhr: null, sleep: null, errors: [] };
+    try {
+      const rhrPoints = await healthApiList(accessToken, "daily-resting-heart-rate");
+      const match = rhrPoints.find((p) => {
+        var _a2;
+        return dateObjToStr((_a2 = p.dailyRestingHeartRate) == null ? void 0 : _a2.date) === dateStr;
+      });
+      if (match) result.rhr = parseInt(match.dailyRestingHeartRate.beatsPerMinute, 10);
+    } catch (e) {
+      result.errors.push(String(e));
+    }
+    try {
+      const hrvPoints = await healthApiList(accessToken, "daily-heart-rate-variability");
+      const match = hrvPoints.find((p) => {
+        var _a2;
+        return dateObjToStr((_a2 = p.dailyHeartRateVariability) == null ? void 0 : _a2.date) === dateStr;
+      });
+      if (match && match.dailyHeartRateVariability.averageHeartRateVariabilityMilliseconds !== void 0) {
+        result.hrv = Math.round(match.dailyHeartRateVariability.averageHeartRateVariabilityMilliseconds);
+      }
+    } catch (e) {
+      result.errors.push(String(e));
+    }
+    try {
+      const sleepPoints = await healthApiList(accessToken, "sleep");
+      const match = sleepPoints.find((p) => {
+        var _a2, _b, _c;
+        const endDate = (_c = (_b = (_a2 = p.sleep) == null ? void 0 : _a2.interval) == null ? void 0 : _b.civilEndTime) == null ? void 0 : _c.date;
+        return dateObjToStr(endDate) === dateStr;
+      });
+      if (match && ((_a = match.sleep.summary) == null ? void 0 : _a.minutesAsleep) !== void 0) {
+        result.sleep = parseInt(match.sleep.summary.minutesAsleep, 10) / 60;
+      }
+    } catch (e) {
+      result.errors.push(String(e));
+    }
+    return result;
+  }
   function useSheetsApi(accessToken) {
     const authHeaders = { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
     async function getRange(range) {
@@ -348,6 +401,8 @@
     const [dailyEditing, setDailyEditing] = useState(null);
     const [dailyConfirmDelete, setDailyConfirmDelete] = useState(null);
     const [pendingDailyOverwrite, setPendingDailyOverwrite] = useState(null);
+    const [healthFetchStatus, setHealthFetchStatus] = useState("idle");
+    const [healthFetchError, setHealthFetchError] = useState(null);
     const [trendExerciseIds, setTrendExerciseIds] = useState(null);
     const [confirmDelete, setConfirmDelete] = useState(null);
     const [editingEntry, setEditingEntry] = useState(null);
@@ -720,6 +775,25 @@
         return next;
       });
     }
+    async function fetchFromGoogleHealth() {
+      setHealthFetchStatus("loading");
+      setHealthFetchError(null);
+      try {
+        const result = await fetchHealthDataForDate(accessToken, dailyForm.date);
+        setDailyForm((prev) => ({
+          ...prev,
+          hrv: result.hrv !== null ? String(result.hrv) : prev.hrv,
+          rhr: result.rhr !== null ? String(result.rhr) : prev.rhr,
+          sleep: result.sleep !== null ? formatSleepHours(result.sleep) : prev.sleep
+        }));
+        if (result.errors.length) setHealthFetchError(result.errors.join(" | "));
+        setHealthFetchStatus(result.hrv === null && result.rhr === null && result.sleep === null ? "empty" : "done");
+        setTimeout(() => setHealthFetchStatus((prev) => prev === "done" ? "idle" : prev), 2500);
+      } catch (e) {
+        setHealthFetchStatus("error");
+        setHealthFetchError(String(e));
+      }
+    }
     const runningCount = Object.values(timers).filter((t) => t.phase === "running" || t.phase === "countdown").length;
     useEffect(() => {
       if (runningCount === 0) return;
@@ -916,7 +990,10 @@ Start: ${start}  Finish: ${finish}`;
         commitDailyForm,
         setPendingDailyOverwrite,
         applyMorningDate,
-        applyNutritionDate
+        applyNutritionDate,
+        fetchFromGoogleHealth,
+        healthFetchStatus,
+        healthFetchError
       }
     ), view === "trends" && /* @__PURE__ */ React.createElement(TrendsView, { routines, allExercises, trendExerciseIds, setTrendExerciseIds, getExerciseEntries }), view === "manage" && /* @__PURE__ */ React.createElement(
       ManageView,
@@ -1130,9 +1207,20 @@ Start: ${start}  Finish: ${finish}`;
       commitDailyForm,
       setPendingDailyOverwrite,
       applyMorningDate,
-      applyNutritionDate
+      applyNutritionDate,
+      fetchFromGoogleHealth,
+      healthFetchStatus,
+      healthFetchError
     } = props;
-    return /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, pendingDailyOverwrite && /* @__PURE__ */ React.createElement("div", { className: "bg-red-500/10 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm text-neutral-50 font-medium mb-1" }, "This will overwrite existing values"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400 mb-3" }, "These fields already have a value saved for that date. Saving will replace them."), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5 mb-3" }, pendingDailyOverwrite.conflicts.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "flex items-center justify-between text-sm bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-200" }, c.label, " ", /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500 text-xs" }, "(", fmtDateShort(dateToTs(c.date)), ")")), /* @__PURE__ */ React.createElement("span", { className: "font-mono text-xs" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500" }, c.oldDisplay), /* @__PURE__ */ React.createElement("span", { className: "text-neutral-400 mx-1" }, "\u2192"), /* @__PURE__ */ React.createElement("span", { className: "text-orange-500" }, c.newDisplay))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => commitDailyForm(pendingDailyOverwrite.morningValues, pendingDailyOverwrite.nutritionValues), className: "flex-1 py-2 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Overwrite"), /* @__PURE__ */ React.createElement("button", { onClick: () => setPendingDailyOverwrite(null), className: "flex-1 py-2 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Cancel"))), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-1" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "This morning"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement("button", { onClick: () => applyMorningDate(addDays(dailyForm.date, -1)), className: "p-1 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 })), /* @__PURE__ */ React.createElement("input", { type: "date", value: dailyForm.date, onChange: (e) => applyMorningDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => applyMorningDate(dailyForm.date === todayStr() ? dailyForm.date : addDays(dailyForm.date, 1)), disabled: dailyForm.date === todayStr(), className: `p-1 ${dailyForm.date === todayStr() ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 })))), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-neutral-400 mb-3" }, "Weight, sleep, sleep score, readiness, HRV, and RHR \u2014 today's reading. Existing values for the selected date are shown automatically."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-4" }, METRIC_DEFS.filter((m) => m.group === "morning").map((m) => /* @__PURE__ */ React.createElement("div", { key: m.key }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, m.label, " ", m.unit && `(${m.unit})`), m.inputType === "time" ? /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "h:mm", value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }) : /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: m.step, value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-1 pt-3 border-t border-neutral-800" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Yesterday's totals"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement("button", { onClick: () => applyNutritionDate(addDays(dailyForm.nutritionDate, -1)), className: "p-1 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 })), /* @__PURE__ */ React.createElement("input", { type: "date", value: dailyForm.nutritionDate, onChange: (e) => applyNutritionDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => applyNutritionDate(dailyForm.nutritionDate === todayStr() ? dailyForm.nutritionDate : addDays(dailyForm.nutritionDate, 1)), disabled: dailyForm.nutritionDate === todayStr(), className: `p-1 ${dailyForm.nutritionDate === todayStr() ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 })))), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-neutral-400 mb-3" }, "Steps, protein, and calories always post to this date, not today's. Existing values shown automatically."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2" }, METRIC_DEFS.filter((m) => m.group === "nutrition").map((m) => /* @__PURE__ */ React.createElement("div", { key: m.key }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, m.label, " ", m.unit && `(${m.unit})`), /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: m.step, value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })))), /* @__PURE__ */ React.createElement("button", { onClick: submitDailyForm, className: "w-full mt-4 py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, "Save")), METRIC_DEFS.map((m) => /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, pendingDailyOverwrite && /* @__PURE__ */ React.createElement("div", { className: "bg-red-500/10 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm text-neutral-50 font-medium mb-1" }, "This will overwrite existing values"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400 mb-3" }, "These fields already have a value saved for that date. Saving will replace them."), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5 mb-3" }, pendingDailyOverwrite.conflicts.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "flex items-center justify-between text-sm bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-200" }, c.label, " ", /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500 text-xs" }, "(", fmtDateShort(dateToTs(c.date)), ")")), /* @__PURE__ */ React.createElement("span", { className: "font-mono text-xs" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500" }, c.oldDisplay), /* @__PURE__ */ React.createElement("span", { className: "text-neutral-400 mx-1" }, "\u2192"), /* @__PURE__ */ React.createElement("span", { className: "text-orange-500" }, c.newDisplay))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => commitDailyForm(pendingDailyOverwrite.morningValues, pendingDailyOverwrite.nutritionValues), className: "flex-1 py-2 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Overwrite"), /* @__PURE__ */ React.createElement("button", { onClick: () => setPendingDailyOverwrite(null), className: "flex-1 py-2 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Cancel"))), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-1" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "This morning"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement("button", { onClick: () => applyMorningDate(addDays(dailyForm.date, -1)), className: "p-1 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 })), /* @__PURE__ */ React.createElement("input", { type: "date", value: dailyForm.date, onChange: (e) => applyMorningDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => applyMorningDate(dailyForm.date === todayStr() ? dailyForm.date : addDays(dailyForm.date, 1)), disabled: dailyForm.date === todayStr(), className: `p-1 ${dailyForm.date === todayStr() ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 })))), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-neutral-400 mb-3" }, "Weight, sleep, sleep score, readiness, HRV, and RHR \u2014 today's reading. Existing values for the selected date are shown automatically."), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: fetchFromGoogleHealth,
+        disabled: healthFetchStatus === "loading",
+        className: `w-full mb-3 py-2 rounded-lg text-sm font-semibold ${healthFetchStatus === "loading" ? "bg-neutral-800 text-neutral-500" : "bg-neutral-800 text-neutral-100"}`
+      },
+      healthFetchStatus === "loading" ? "Fetching\u2026" : healthFetchStatus === "done" ? "Fetched \u2713" : healthFetchStatus === "empty" ? "No data found for this date" : "Fetch HRV / RHR / Sleep from Google Health"
+    ), healthFetchError && /* @__PURE__ */ React.createElement("div", { className: "text-red-400 text-xs mb-3 whitespace-pre-wrap" }, healthFetchError), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-4" }, METRIC_DEFS.filter((m) => m.group === "morning").map((m) => /* @__PURE__ */ React.createElement("div", { key: m.key }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, m.label, " ", m.unit && `(${m.unit})`), m.inputType === "time" ? /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "h:mm", value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }) : /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: m.step, value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-1 pt-3 border-t border-neutral-800" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Yesterday's totals"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement("button", { onClick: () => applyNutritionDate(addDays(dailyForm.nutritionDate, -1)), className: "p-1 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 })), /* @__PURE__ */ React.createElement("input", { type: "date", value: dailyForm.nutritionDate, onChange: (e) => applyNutritionDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => applyNutritionDate(dailyForm.nutritionDate === todayStr() ? dailyForm.nutritionDate : addDays(dailyForm.nutritionDate, 1)), disabled: dailyForm.nutritionDate === todayStr(), className: `p-1 ${dailyForm.nutritionDate === todayStr() ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 })))), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-neutral-400 mb-3" }, "Steps, protein, and calories always post to this date, not today's. Existing values shown automatically."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2" }, METRIC_DEFS.filter((m) => m.group === "nutrition").map((m) => /* @__PURE__ */ React.createElement("div", { key: m.key }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, m.label, " ", m.unit && `(${m.unit})`), /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: m.step, value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })))), /* @__PURE__ */ React.createElement("button", { onClick: submitDailyForm, className: "w-full mt-4 py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, "Save")), METRIC_DEFS.map((m) => /* @__PURE__ */ React.createElement(
       MetricCard,
       {
         key: m.key,
