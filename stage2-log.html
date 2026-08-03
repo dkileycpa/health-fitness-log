@@ -73,6 +73,7 @@
   .bg-orange-500 { background-color: #f97316; }
   .bg-red-500\/10 { background-color: rgba(239,68,68,.1); }
   .text-emerald-400 { color: #34d399; }
+  .border-emerald-400 { border-color: #34d399; }
   .text-neutral-50 { color: #fafafa; }
   .text-neutral-100 { color: #f5f5f5; }
   .text-neutral-200 { color: #e5e5e5; }
@@ -706,21 +707,23 @@ Start: ${start}  Finish: ${finish}`;
         {
           key: b.id,
           onClick: () => setSelectedBand((prev) => ({ ...prev, [ex.id]: b.id })),
-          className: `shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-xs font-medium ${isSelected ? "bg-neutral-800 border-orange-500" : "bg-neutral-950 border-neutral-800"}`
+          className: `shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-xs font-medium ${isSelected ? "bg-neutral-800 border-emerald-400" : "bg-neutral-950 border-neutral-800"}`
         },
         /* @__PURE__ */ React.createElement(
           "span",
           {
-            className: "rounded-full border border-black/30",
-            style: {
-              width: 18,
-              height: 18,
-              background: b.swatch,
-              boxShadow: isSelected ? "0 0 0 2px #171717, 0 0 0 4px #f97316" : "none"
+            className: "flex items-center justify-center rounded-full",
+            style: { width: 20, height: 20, background: "#f97316" }
+          },
+          /* @__PURE__ */ React.createElement(
+            "span",
+            {
+              className: "rounded-full border border-black/30",
+              style: { width: 13, height: 13, background: b.swatch }
             }
-          }
+          )
         ),
-        /* @__PURE__ */ React.createElement("span", { className: isSelected ? "text-neutral-50" : "text-neutral-400" }, b.label)
+        /* @__PURE__ */ React.createElement("span", { className: isSelected ? "text-emerald-400" : "text-neutral-400" }, b.label)
       );
     })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-3" }, /* @__PURE__ */ React.createElement(StatBox, { label: "PR", value: fmtVal(stats.pr, unit) }), /* @__PURE__ */ React.createElement(StatBox, { label: "Last", value: fmtVal(stats.last, unit) }), /* @__PURE__ */ React.createElement(StatBox, { label: "Target", value: stats.targetLow !== null ? `${stats.targetLow}\u2013${fmtVal(stats.targetHigh, unit)}` : "\u2014", accent: true })), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-950 border border-neutral-800 rounded-xl p-3 space-y-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1" }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-500" }, unit === "reps" ? "Reps" : "Time under tension"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mt-1" }, unit === "seconds" && /* @__PURE__ */ React.createElement(
       "button",
