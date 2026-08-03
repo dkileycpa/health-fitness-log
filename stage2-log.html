@@ -156,7 +156,7 @@
 <script>
 (() => {
   const { useState, useEffect, useCallback, useRef } = React;
-  const { ChevronUp, ChevronDown, Pencil, Trash2, Eye, EyeOff, Plus, Check, X, Timer, ListChecks, RotateCcw } = window.LucideIcons;
+  const { ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Pencil, Trash2, Eye, EyeOff, Plus, Check, X, Timer, ListChecks, RotateCcw } = window.LucideIcons;
   const CLIENT_ID = "242814993883-qubuj093i89cliq097qb89em016h5cfe.apps.googleusercontent.com";
   const SPREADSHEET_ID = "19JalMbLch7TlUqduehJWctz0EabC1akRuoEgLpDG2xU";
   const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
@@ -194,8 +194,20 @@
   function fmtTime(ts) {
     return new Date(ts).toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" });
   }
-  function isSameDay(a, b) {
-    return new Date(a).toDateString() === new Date(b).toDateString();
+  function toDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  function todayStr() {
+    return toDateStr(/* @__PURE__ */ new Date());
+  }
+  function addDays(dateStr, delta) {
+    const d = /* @__PURE__ */ new Date(`${dateStr}T00:00:00`);
+    d.setDate(d.getDate() + delta);
+    return toDateStr(d);
+  }
+  function fmtDayLabel(dateStr) {
+    if (dateStr === todayStr()) return "Today";
+    return (/* @__PURE__ */ new Date(`${dateStr}T00:00:00`)).toLocaleDateString(void 0, { weekday: "short", month: "short", day: "numeric" });
   }
   function tsToInputTime(ts) {
     const d = new Date(ts);
@@ -255,6 +267,7 @@
     const [entries, setEntries] = useState([]);
     const [sessionOverrides, setSessionOverrides] = useState({});
     const [activeRoutineId, setActiveRoutineId] = useState(null);
+    const [viewDate, setViewDate] = useState(todayStr());
     const [selectedBand, setSelectedBand] = useState({});
     const [formState, setFormState] = useState({});
     const [timers, setTimers] = useState({});
@@ -578,6 +591,8 @@ Start: ${start}  Finish: ${finish}`;
       {
         routine: activeRoutine,
         entries,
+        viewDate,
+        setViewDate,
         selectedBand,
         setSelectedBand,
         formState,
@@ -609,6 +624,8 @@ Start: ${start}  Finish: ${finish}`;
     const {
       routine,
       entries,
+      viewDate,
+      setViewDate,
       selectedBand,
       setSelectedBand,
       formState,
@@ -634,29 +651,32 @@ Start: ${start}  Finish: ${finish}`;
       sessionOverrides,
       setSessionOverrideField
     } = props;
+    const isToday = viewDate === todayStr();
     const liveExercises = routine.exercises.filter((ex) => !ex.archived);
-    const todaysRoutineEntries = entries.filter((e) => e.routineId === routine.id && isSameDay(e.timestamp, Date.now()));
-    const summaryKey = `log-${routine.id}`;
-    const overrideKey = `${new Date(Date.now()).toDateString()}|${routine.id}`;
+    const viewDateEntries = entries.filter((e) => e.routineId === routine.id && toDateStr(new Date(e.timestamp)) === viewDate);
+    const summaryKey = `log-${viewDate}-${routine.id}`;
+    const overrideKey = `${(/* @__PURE__ */ new Date(`${viewDate}T00:00:00`)).toDateString()}|${routine.id}`;
     const override = sessionOverrides[overrideKey] || {};
-    const sortedToday = [...todaysRoutineEntries].sort((a, b) => a.timestamp - b.timestamp);
-    const defaultStartInput = sortedToday.length ? tsToInputTime(sortedToday[0].timestamp) : "";
-    const defaultFinishInput = sortedToday.length ? tsToInputTime(sortedToday[sortedToday.length - 1].timestamp) : "";
+    const sortedView = [...viewDateEntries].sort((a, b) => a.timestamp - b.timestamp);
+    const defaultStartInput = sortedView.length ? tsToInputTime(sortedView[0].timestamp) : "";
+    const defaultFinishInput = sortedView.length ? tsToInputTime(sortedView[sortedView.length - 1].timestamp) : "";
     const startDisplay = override.start ? inputTimeTo12h(override.start) : null;
     const finishDisplay = override.finish ? inputTimeTo12h(override.finish) : null;
-    return /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, todaysRoutineEntries.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Today's session summary"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-xl px-2 py-1.5" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setViewDate((d) => addDays(d, -1)), className: "p-1.5 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 18 })), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-semibold text-neutral-50" }, fmtDayLabel(viewDate)), /* @__PURE__ */ React.createElement("button", { onClick: () => setViewDate((d) => d === todayStr() ? d : addDays(d, 1)), disabled: isToday, className: `p-1.5 ${isToday ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 18 }))), !isToday && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500 px-1" }, "Viewing a past day \u2014 switch back to Today to log new sets."), viewDateEntries.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, fmtDayLabel(viewDate), "'s session summary"), /* @__PURE__ */ React.createElement(
       "button",
       {
-        onClick: () => copySummary(summaryKey, routine, todaysRoutineEntries, startDisplay, finishDisplay),
+        onClick: () => copySummary(summaryKey, routine, viewDateEntries, startDisplay, finishDisplay),
         className: "text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-500 text-neutral-950"
       },
       copiedFlash === summaryKey ? "Copied!" : "Copy"
-    )), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 mb-2" }, /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-1.5 text-xs text-neutral-400" }, "Start", /* @__PURE__ */ React.createElement("input", { type: "time", value: override.start || defaultStartInput, onChange: (e) => setSessionOverrideField(overrideKey, "start", e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-1.5 py-1 text-xs text-neutral-200" })), /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-1.5 text-xs text-neutral-400" }, "Finish", /* @__PURE__ */ React.createElement("input", { type: "time", value: override.finish || defaultFinishInput, onChange: (e) => setSessionOverrideField(overrideKey, "finish", e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-1.5 py-1 text-xs text-neutral-200" }))), /* @__PURE__ */ React.createElement("pre", { className: "text-xs text-neutral-300 whitespace-pre-wrap font-mono leading-relaxed" }, buildWorkoutSummary(routine, todaysRoutineEntries, startDisplay, finishDisplay))), liveExercises.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm" }, "No movements in this routine yet.") : liveExercises.map((ex) => /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 mb-2" }, /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-1.5 text-xs text-neutral-400" }, "Start", /* @__PURE__ */ React.createElement("input", { type: "time", value: override.start || defaultStartInput, onChange: (e) => setSessionOverrideField(overrideKey, "start", e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-1.5 py-1 text-xs text-neutral-200" })), /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-1.5 text-xs text-neutral-400" }, "Finish", /* @__PURE__ */ React.createElement("input", { type: "time", value: override.finish || defaultFinishInput, onChange: (e) => setSessionOverrideField(overrideKey, "finish", e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-1.5 py-1 text-xs text-neutral-200" }))), /* @__PURE__ */ React.createElement("pre", { className: "text-xs text-neutral-300 whitespace-pre-wrap font-mono leading-relaxed" }, buildWorkoutSummary(routine, viewDateEntries, startDisplay, finishDisplay))), liveExercises.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm" }, "No movements in this routine yet.") : liveExercises.map((ex) => /* @__PURE__ */ React.createElement(
       ExerciseCard,
       {
         key: ex.id,
         ex,
         routine,
+        viewDate,
+        isToday,
         selectedBand,
         setSelectedBand,
         formState,
@@ -683,6 +703,8 @@ Start: ${start}  Finish: ${finish}`;
     const {
       ex,
       routine,
+      viewDate,
+      isToday,
       selectedBand,
       setSelectedBand,
       formState,
@@ -707,7 +729,7 @@ Start: ${start}  Finish: ${finish}`;
     const band = selectedBand[ex.id] || defaultBandFor(ex.id);
     const bandEntries = getExerciseEntries(ex.id, band);
     const stats = computeStats(bandEntries);
-    const todayEntries = getExerciseEntries(ex.id).filter((e) => isSameDay(e.timestamp, Date.now()));
+    const viewDateEntries = getExerciseEntries(ex.id).filter((e) => toDateStr(new Date(e.timestamp)) === viewDate);
     const timer = timers[ex.id] || { phase: "idle", seconds: 0, countdown: 5 };
     const fs = formState[ex.id] || { tut: "", note: "" };
     const isExpanded = expandedExId === ex.id;
@@ -729,7 +751,7 @@ Start: ${start}  Finish: ${finish}`;
         ),
         /* @__PURE__ */ React.createElement("span", { className: isSelected ? "text-emerald-400" : "text-neutral-950" }, b.label)
       );
-    })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-3" }, /* @__PURE__ */ React.createElement(StatBox, { label: "PR", value: fmtVal(stats.pr, unit) }), /* @__PURE__ */ React.createElement(StatBox, { label: "Last", value: fmtVal(stats.last, unit) }), /* @__PURE__ */ React.createElement(StatBox, { label: "Target", value: stats.targetLow !== null ? `${stats.targetLow}\u2013${fmtVal(stats.targetHigh, unit)}` : "\u2014", accent: true })), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-950 border border-neutral-800 rounded-xl p-3 space-y-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1" }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-500" }, unit === "reps" ? "Reps" : "Time under tension"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mt-1" }, unit === "seconds" && /* @__PURE__ */ React.createElement(
+    })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-3" }, /* @__PURE__ */ React.createElement(StatBox, { label: "PR", value: fmtVal(stats.pr, unit) }), /* @__PURE__ */ React.createElement(StatBox, { label: "Last", value: fmtVal(stats.last, unit) }), /* @__PURE__ */ React.createElement(StatBox, { label: "Target", value: stats.targetLow !== null ? `${stats.targetLow}\u2013${fmtVal(stats.targetHigh, unit)}` : "\u2014", accent: true })), isToday && /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-950 border border-neutral-800 rounded-xl p-3 space-y-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1" }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-500" }, unit === "reps" ? "Reps" : "Time under tension"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mt-1" }, unit === "seconds" && /* @__PURE__ */ React.createElement(
       "button",
       {
         onClick: () => timer.phase === "idle" ? startTimer(ex.id) : stopTimer(ex.id),
@@ -775,7 +797,7 @@ Start: ${start}  Finish: ${finish}`;
         onChange: (e) => setFormState((prev) => ({ ...prev, [ex.id]: { ...fs, note: e.target.value } })),
         className: "w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200"
       }
-    )), todayEntries.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-3 space-y-1.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-wide text-neutral-500" }, "Today"), todayEntries.map((e) => /* @__PURE__ */ React.createElement(
+    )), viewDateEntries.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-3 space-y-1.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-wide text-neutral-500" }, fmtDayLabel(viewDate)), viewDateEntries.map((e) => /* @__PURE__ */ React.createElement(
       EntryRow,
       {
         key: e.id,
