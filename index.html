@@ -181,8 +181,8 @@
   const CLIENT_ID = "242814993883-qubuj093i89cliq097qb89em016h5cfe.apps.googleusercontent.com";
   const SPREADSHEET_ID = "19JalMbLch7TlUqduehJWctz0EabC1akRuoEgLpDG2xU";
   const SCOPES = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly https://www.googleapis.com/auth/googlehealth.sleep.readonly";
-  const TOKEN_KEY = "x3log_access_token_v2";
-  const TOKEN_EXPIRY_KEY = "x3log_token_expiry_v2";
+  const TOKEN_KEY = "x3log_access_token_v3";
+  const TOKEN_EXPIRY_KEY = "x3log_token_expiry_v3";
   const HEALTH_API_BASE = "https://health.googleapis.com/v4";
   const BANDS = [
     { id: "none", label: "None", short: "\u2014", swatch: "transparent", dot: "#9CA3AF" },
@@ -446,12 +446,29 @@
           return;
         }
         const cached = getCachedToken();
+        let scopeRetryDone = false;
+        function hasRequiredScopes(grantedScopeStr) {
+          if (!grantedScopeStr) return false;
+          const granted = grantedScopeStr.split(" ");
+          return SCOPES.split(" ").every((s) => granted.includes(s));
+        }
         const onResp = (resp) => {
-          setCheckingSilentAuth(false);
           if (resp.error) {
+            setCheckingSilentAuth(false);
             if (resp.error !== "user_logged_out" && resp.error !== "immediate_failed") setErrorMsg("Sign-in failed: " + JSON.stringify(resp));
             return;
           }
+          if (!hasRequiredScopes(resp.scope)) {
+            if (scopeRetryDone) {
+              setCheckingSilentAuth(false);
+              setErrorMsg("Signed in, but not all requested permissions were granted. Please make sure to approve every item on the consent screen, then reload.");
+              return;
+            }
+            scopeRetryDone = true;
+            client.requestAccessToken({ prompt: "consent" });
+            return;
+          }
+          setCheckingSilentAuth(false);
           cacheToken(resp.access_token, resp.expires_in || 3500);
           setAccessToken(resp.access_token);
         };
