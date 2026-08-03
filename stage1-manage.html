@@ -194,44 +194,55 @@
       return null;
     }
     useEffect(() => {
-      const cached = getCachedToken();
-      if (cached) {
-        setAccessToken(cached);
-        setCheckingSilentAuth(false);
-        const client2 = google.accounts.oauth2.initTokenClient({
+      let cancelled = false;
+      function initAuth() {
+        if (cancelled) return;
+        if (!(window.google && window.google.accounts && window.google.accounts.oauth2)) {
+          setTimeout(initAuth, 100);
+          return;
+        }
+        const cached = getCachedToken();
+        if (cached) {
+          setAccessToken(cached);
+          setCheckingSilentAuth(false);
+          const client2 = google.accounts.oauth2.initTokenClient({
+            client_id: CLIENT_ID,
+            scope: SCOPES,
+            callback: (resp) => {
+              if (resp.error) {
+                setErrorMsg("Sign-in failed: " + JSON.stringify(resp));
+                return;
+              }
+              cacheToken(resp.access_token, resp.expires_in || 3500);
+              setAccessToken(resp.access_token);
+            }
+          });
+          setTokenClient(client2);
+          return;
+        }
+        const client = google.accounts.oauth2.initTokenClient({
           client_id: CLIENT_ID,
           scope: SCOPES,
           callback: (resp) => {
+            setCheckingSilentAuth(false);
             if (resp.error) {
-              setErrorMsg("Sign-in failed: " + JSON.stringify(resp));
+              if (resp.error !== "user_logged_out" && resp.error !== "immediate_failed") {
+                setErrorMsg("Sign-in failed: " + JSON.stringify(resp));
+              }
               return;
             }
             cacheToken(resp.access_token, resp.expires_in || 3500);
             setAccessToken(resp.access_token);
           }
         });
-        setTokenClient(client2);
-        return;
+        setTokenClient(client);
+        client.requestAccessToken({ prompt: "" });
+        setTimeout(() => setCheckingSilentAuth(false), 3e3);
       }
-      const client = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: (resp) => {
-          setCheckingSilentAuth(false);
-          if (resp.error) {
-            if (resp.error !== "user_logged_out" && resp.error !== "immediate_failed") {
-              setErrorMsg("Sign-in failed: " + JSON.stringify(resp));
-            }
-            return;
-          }
-          cacheToken(resp.access_token, resp.expires_in || 3500);
-          setAccessToken(resp.access_token);
-        }
-      });
-      setTokenClient(client);
-      client.requestAccessToken({ prompt: "" });
-      const safetyTimeout = setTimeout(() => setCheckingSilentAuth(false), 3e3);
-      return () => clearTimeout(safetyTimeout);
+      initAuth();
+      return () => {
+        cancelled = true;
+      };
     }, []);
     const loadData = useCallback(async () => {
       setLoading(true);

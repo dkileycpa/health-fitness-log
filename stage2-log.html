@@ -249,28 +249,39 @@
       return null;
     }
     useEffect(() => {
-      const cached = getCachedToken();
-      const onResp = (resp) => {
-        setCheckingSilentAuth(false);
-        if (resp.error) {
-          if (resp.error !== "user_logged_out" && resp.error !== "immediate_failed") {
-            setErrorMsg("Sign-in failed: " + JSON.stringify(resp));
-          }
+      let cancelled = false;
+      function initAuth() {
+        if (cancelled) return;
+        if (!(window.google && window.google.accounts && window.google.accounts.oauth2)) {
+          setTimeout(initAuth, 100);
           return;
         }
-        cacheToken(resp.access_token, resp.expires_in || 3500);
-        setAccessToken(resp.access_token);
-      };
-      const client = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: onResp });
-      setTokenClient(client);
-      if (cached) {
-        setAccessToken(cached);
-        setCheckingSilentAuth(false);
-        return;
+        const cached = getCachedToken();
+        const onResp = (resp) => {
+          setCheckingSilentAuth(false);
+          if (resp.error) {
+            if (resp.error !== "user_logged_out" && resp.error !== "immediate_failed") {
+              setErrorMsg("Sign-in failed: " + JSON.stringify(resp));
+            }
+            return;
+          }
+          cacheToken(resp.access_token, resp.expires_in || 3500);
+          setAccessToken(resp.access_token);
+        };
+        const client = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: onResp });
+        setTokenClient(client);
+        if (cached) {
+          setAccessToken(cached);
+          setCheckingSilentAuth(false);
+          return;
+        }
+        client.requestAccessToken({ prompt: "" });
+        setTimeout(() => setCheckingSilentAuth(false), 3e3);
       }
-      client.requestAccessToken({ prompt: "" });
-      const safety = setTimeout(() => setCheckingSilentAuth(false), 3e3);
-      return () => clearTimeout(safety);
+      initAuth();
+      return () => {
+        cancelled = true;
+      };
     }, []);
     const loadData = useCallback(async () => {
       setLoading(true);
