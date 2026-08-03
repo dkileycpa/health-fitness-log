@@ -10,12 +10,40 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  body { background:#0a0a0a; }
+  body { background:#0a0a0a; color:#fafafa; font-family: -apple-system, sans-serif; }
   ::-webkit-scrollbar { display:none; }
+  #boot-error { padding:16px; color:#f87171; font-size:12px; white-space:pre-wrap; word-break:break-word; }
 </style>
 </head>
 <body class="text-neutral-50">
-<div id="root"></div>
+<div id="root"><div style="padding:16px;color:#a3a3a3;">Loading…</div></div>
+<div id="boot-error"></div>
+
+<script>
+  function showBootError(msg) {
+    var el = document.getElementById("boot-error");
+    if (el) el.textContent = "Error: " + msg;
+    console.error(msg);
+  }
+  window.onerror = function (message, source, lineno, colno, error) {
+    showBootError(message + " (line " + lineno + ")");
+  };
+  window.addEventListener("unhandledrejection", function (e) {
+    showBootError("Unhandled promise rejection: " + (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+  window.__stage1Booted = false;
+  setTimeout(function () {
+    if (!window.__stage1Booted) {
+      showBootError(
+        "Boot check failed after 4s.\n" +
+        "React loaded: " + (typeof React !== "undefined") + "\n" +
+        "ReactDOM loaded: " + (typeof ReactDOM !== "undefined") + "\n" +
+        "Babel loaded: " + (typeof Babel !== "undefined") + "\n" +
+        "Google Identity Services loaded: " + (typeof google !== "undefined" && !!(google && google.accounts))
+      );
+    }
+  }, 4000);
+</script>
 
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useCallback } = React;
@@ -406,7 +434,13 @@ function RenameInline({ initial, onSave, onCancel }) {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+try {
+  window.__stage1Booted = true;
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+} catch (e) {
+  document.getElementById("boot-error").textContent = "Render error: " + e.message;
+  console.error(e);
+}
 </script>
 </body>
 </html>
