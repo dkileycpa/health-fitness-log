@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>X3LOG — Daily (Stage 3)</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<style>
+  /* Minimal hand-rolled utility set replacing the Tailwind Play CDN (removed — it injects
+     scripts at runtime and was conflicting with Babel standalone). */
+  * { box-sizing: border-box; }
+  .flex { display: flex; }
+  .flex-1 { flex: 1 1 0%; }
+  .flex-col { flex-direction: column; }
+  .items-center { align-items: center; }
+  .justify-between { justify-content: space-between; }
+  .justify-center { justify-content: center; }
+  .text-left { text-align: left; }
+  .gap-1 { gap: .25rem; }
+  .gap-2 { gap: .5rem; }
+  .space-y-1\.5 > * + * { margin-top: .375rem; }
+  .space-y-4 > * + * { margin-top: 1rem; }
+  .rounded-lg { border-radius: .5rem; }
+  .rounded-md { border-radius: .375rem; }
+  .rounded-2xl { border-radius: 1rem; }
+  .rounded-full { border-radius: 9999px; }
+  .border { border-width: 1px; border-style: solid; border-color: #262626; }
+  .border-2 { border-width: 2px; border-style: solid; }
+  .border-neutral-800 { border-color: #262626; }
+  .border-orange-500 { border-color: #f97316; }
+  .border-orange-500\/50 { border-color: rgba(249,115,22,.5); }
+  .font-bold { font-weight: 700; }
+  .font-semibold { font-weight: 600; }
+  .text-xs { font-size: .75rem; line-height: 1rem; }
+  .text-sm { font-size: .875rem; line-height: 1.25rem; }
+  .text-xl { font-size: 1.25rem; line-height: 1.75rem; }
+  .text-\[10px\] { font-size: 10px; }
+  .text-\[11px\] { font-size: 11px; }
+  .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .uppercase { text-transform: uppercase; }
+  .line-through { text-decoration: line-through; }
+  .whitespace-pre-wrap { white-space: pre-wrap; }
+  .overflow-hidden { overflow: hidden; }
+  .overflow-x-auto { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .shrink-0 { flex-shrink: 0; }
+  .opacity-30 { opacity: .3; }
+  .w-10 { width: 2.5rem; }
+  .w-full { width: 100%; }
+  .h-10 { height: 2.5rem; }
+  .max-w-md { max-width: 28rem; }
+  .min-w-0 { min-width: 0px; }
+  .mx-auto { margin-left: auto; margin-right: auto; }
+  .mb-2 { margin-bottom: .5rem; }
+  .mb-4 { margin-bottom: 1rem; }
+  .mt-3 { margin-top: .75rem; }
+  .mt-4 { margin-top: 1rem; }
+  .pb-16 { padding-bottom: 4rem; }
+  .p-1 { padding: .25rem; }
+  .p-1\.5 { padding: .375rem; }
+  .p-4 { padding: 1rem; }
+  .p-6 { padding: 1.5rem; }
+  .px-1\.5 { padding-left: .375rem; padding-right: .375rem; }
+  .px-2 { padding-left: .5rem; padding-right: .5rem; }
+  .px-3 { padding-left: .75rem; padding-right: .75rem; }
+  .px-4 { padding-left: 1rem; padding-right: 1rem; }
+  .py-1 { padding-top: .25rem; padding-bottom: .25rem; }
+  .py-2 { padding-top: .5rem; padding-bottom: .5rem; }
+  .py-2\.5 { padding-top: .625rem; padding-bottom: .625rem; }
+  .py-3 { padding-top: .75rem; padding-bottom: .75rem; }
+  .bg-neutral-800 { background-color: #262626; }
+  .bg-neutral-900 { background-color: #171717; }
+  .bg-neutral-950 { background-color: #0a0a0a; }
+  .bg-neutral-950\/50 { background-color: rgba(10,10,10,.5); }
+  .bg-orange-500 { background-color: #f97316; }
+  .bg-red-500\/10 { background-color: rgba(239,68,68,.1); }
+  .text-emerald-400 { color: #34d399; }
+  .border-emerald-400 { border-color: #34d399; }
+  .text-neutral-50 { color: #fafafa; }
+  .text-neutral-100 { color: #f5f5f5; }
+  .text-neutral-200 { color: #e5e5e5; }
+  .text-neutral-300 { color: #d4d4d4; }
+  .text-neutral-400 { color: #a3a3a3; }
+  .text-neutral-500 { color: #737373; }
+  .text-neutral-600 { color: #525252; }
+  .text-neutral-950 { color: #0a0a0a; }
+  .text-red-400 { color: #f87171; }
+  button, input, select, textarea {
+    font-family: inherit;
+    font-size: 100%;
+    line-height: inherit;
+    color: inherit;
+    margin: 0;
+    padding: 0;
+  }
+  button, select {
+    text-transform: none;
+  }
+  button, [type='button'], [type='reset'], [type='submit'] {
+    -webkit-appearance: button;
+    background-color: transparent;
+    background-image: none;
+    border: 0;
+    cursor: pointer;
+  }
+  select {
+    background-color: transparent;
+  }
+</style>
+<style>
+  body { background:#0a0a0a; color:#fafafa; font-family: -apple-system, sans-serif; }
+  ::-webkit-scrollbar { display:none; }
+  #boot-error { padding:16px; color:#f87171; font-size:12px; white-space:pre-wrap; word-break:break-word; }
+</style>
+<script src="icons.js"></script>
+<script src="charts.js"></script>
+</head>
+<body class="text-neutral-50">
+<div id="root"><div style="padding:16px;color:#a3a3a3;">Loading…</div></div>
+<div id="boot-error"></div>
+
+<script>
+  function showBootError(msg) {
+    var el = document.getElementById("boot-error");
+    if (el) el.textContent = "Error: " + msg;
+    console.error(msg);
+  }
+  window.onerror = function (message, source, lineno, colno, error) {
+    showBootError(message + " (line " + lineno + ")");
+  };
+  window.addEventListener("unhandledrejection", function (e) {
+    showBootError("Unhandled promise rejection: " + (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+  window.__stage3Booted = false;
+  setTimeout(function () {
+    if (!window.__stage3Booted) {
+      showBootError(
+        "Boot check failed after 4s.\n" +
+        "React loaded: " + (typeof React !== "undefined") + "\n" +
+        "ReactDOM loaded: " + (typeof ReactDOM !== "undefined") + "\n" +
+        "Icons loaded: " + (typeof window.LucideIcons !== "undefined") + "\n" +
+        "Charts loaded: " + (typeof window.Recharts !== "undefined") + "\n" +
+        "Google Identity Services loaded: " + (typeof google !== "undefined" && !!(google && google.accounts))
+      );
+    }
+  }, 4000);
+</script>
+
+<script>
+(() => {
+  const { useState, useEffect, useCallback, useRef } = React;
+  const { ChevronUp, ChevronDown, Pencil, Trash2, Check, X } = window.LucideIcons;
+  const { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } = window.Recharts;
+  const CLIENT_ID = "242814993883-qubuj093i89cliq097qb89em016h5cfe.apps.googleusercontent.com";
+  const SPREADSHEET_ID = "19JalMbLch7TlUqduehJWctz0EabC1akRuoEgLpDG2xU";
+  const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
+  const TOKEN_KEY = "x3log_access_token";
+  const TOKEN_EXPIRY_KEY = "x3log_token_expiry";
+  const METRIC_DEFS = [
+    { key: "weight", label: "Weight", unit: "lb", decimals: 1, step: "0.1", group: "morning" },
+    { key: "sleep", label: "Sleep", unit: "hr", decimals: 1, step: "0.1", group: "morning", inputType: "time" },
+    { key: "sleepScore", label: "Sleep Score", unit: "", decimals: 0, step: "1", group: "morning" },
+    { key: "readiness", label: "Readiness", unit: "", decimals: 0, step: "1", group: "morning" },
+    { key: "hrv", label: "HRV", unit: "ms", decimals: 0, step: "1", group: "morning" },
+    { key: "rhr", label: "RHR", unit: "bpm", decimals: 0, step: "1", group: "morning" },
+    { key: "steps", label: "Steps", unit: "", decimals: 0, step: "1", group: "nutrition" },
+    { key: "protein", label: "Protein", unit: "g", decimals: 0, step: "1", group: "nutrition" },
+    { key: "calories", label: "Calories", unit: "kcal", decimals: 0, step: "1", group: "nutrition" }
+  ];
+  function toDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  function todayStr() {
+    return toDateStr(/* @__PURE__ */ new Date());
+  }
+  function addDays(dateStr, delta) {
+    const d = /* @__PURE__ */ new Date(`${dateStr}T00:00:00`);
+    d.setDate(d.getDate() + delta);
+    return toDateStr(d);
+  }
+  function dateToTs(dateStr) {
+    return (/* @__PURE__ */ new Date(`${dateStr}T00:00:00`)).getTime();
+  }
+  function fmtDateShort(ts) {
+    return new Date(ts).toLocaleDateString(void 0, { month: "short", day: "numeric" });
+  }
+  function parseSleepInput(raw) {
+    if (raw === "" || raw === void 0 || raw === null) return null;
+    const str = String(raw).trim();
+    if (str.includes(":")) {
+      const [h, m] = str.split(":");
+      return (parseInt(h, 10) || 0) + (parseInt(m, 10) || 0) / 60;
+    }
+    const val = parseFloat(str);
+    return Number.isNaN(val) ? null : val;
+  }
+  function formatSleepHours(decimalHours) {
+    if (decimalHours === null || decimalHours === void 0 || Number.isNaN(decimalHours)) return "\u2014";
+    const h = Math.floor(decimalHours);
+    const m = Math.round((decimalHours - h) * 60);
+    return `${h}:${String(m).padStart(2, "0")}`;
+  }
+  function useSheetsApi(accessToken) {
+    const authHeaders = { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
+    async function getRange(range) {
+      const res = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}`,
+        { headers: authHeaders }
+      );
+      if (!res.ok) throw new Error(`Read failed (${res.status}): ${await res.text()}`);
+      const data = await res.json();
+      return data.values || [];
+    }
+    async function clearRange(range) {
+      const res = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:clear`,
+        { method: "POST", headers: authHeaders }
+      );
+      if (!res.ok) throw new Error(`Clear failed (${res.status}): ${await res.text()}`);
+    }
+    async function updateRange(range, values) {
+      if (values.length === 0) return;
+      const res = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
+        { method: "PUT", headers: authHeaders, body: JSON.stringify({ values }) }
+      );
+      if (!res.ok) throw new Error(`Write failed (${res.status}): ${await res.text()}`);
+    }
+    return { getRange, clearRange, updateRange };
+  }
+  function App() {
+    const [accessToken, setAccessToken] = useState(null);
+    const [tokenClient, setTokenClient] = useState(null);
+    const [checkingSilentAuth, setCheckingSilentAuth] = useState(true);
+    const [errorMsg, setErrorMsg] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [saveState, setSaveState] = useState("idle");
+    const [dailyMetrics, setDailyMetrics] = useState([]);
+    const [dailyForm, setDailyForm] = useState({
+      date: todayStr(),
+      nutritionDate: addDays(todayStr(), -1),
+      weight: "",
+      hrv: "",
+      rhr: "",
+      protein: "",
+      calories: "",
+      sleep: "",
+      sleepScore: "",
+      readiness: "",
+      steps: ""
+    });
+    const [expandedMetric, setExpandedMetric] = useState({});
+    const [dailyEditing, setDailyEditing] = useState(null);
+    const [dailyConfirmDelete, setDailyConfirmDelete] = useState(null);
+    const [pendingDailyOverwrite, setPendingDailyOverwrite] = useState(null);
+    const api = useSheetsApi(accessToken);
+    function cacheToken(token, expiresInSeconds) {
+      const expiryTs = Date.now() + expiresInSeconds * 1e3 - 6e4;
+      try {
+        localStorage.setItem(TOKEN_KEY, token);
+        localStorage.setItem(TOKEN_EXPIRY_KEY, String(expiryTs));
+      } catch (e) {
+      }
+    }
+    function getCachedToken() {
+      try {
+        const token = localStorage.getItem(TOKEN_KEY);
+        const expiry = parseInt(localStorage.getItem(TOKEN_EXPIRY_KEY), 10);
+        if (token && expiry && Date.now() < expiry) return token;
+      } catch (e) {
+      }
+      return null;
+    }
+    useEffect(() => {
+      let cancelled = false;
+      let authAttempts = 0;
+      function initAuth() {
+        if (cancelled) return;
+        if (!(window.google && window.google.accounts && window.google.accounts.oauth2)) {
+          authAttempts += 1;
+          if (authAttempts > 100) {
+            setCheckingSilentAuth(false);
+            setErrorMsg("Google Identity Services failed to load after 10s. Check your network connection or an ad blocker, then reload the page.");
+            return;
+          }
+          setTimeout(initAuth, 100);
+          return;
+        }
+        const cached = getCachedToken();
+        const onResp = (resp) => {
+          setCheckingSilentAuth(false);
+          if (resp.error) {
+            if (resp.error !== "user_logged_out" && resp.error !== "immediate_failed") {
+              setErrorMsg("Sign-in failed: " + JSON.stringify(resp));
+            }
+            return;
+          }
+          cacheToken(resp.access_token, resp.expires_in || 3500);
+          setAccessToken(resp.access_token);
+        };
+        const client = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: onResp });
+        setTokenClient(client);
+        if (cached) {
+          setAccessToken(cached);
+          setCheckingSilentAuth(false);
+          return;
+        }
+        client.requestAccessToken({ prompt: "" });
+        setTimeout(() => setCheckingSilentAuth(false), 3e3);
+      }
+      initAuth();
+      return () => {
+        cancelled = true;
+      };
+    }, []);
+    const loadData = useCallback(async () => {
+      setLoading(true);
+      setErrorMsg(null);
+      try {
+        const rows = await api.getRange("DailyMetrics!A2:J10000");
+        const nz = (v) => v === "" || v === void 0 ? null : parseFloat(v);
+        const loaded = rows.filter((r) => r[0]).map((r) => ({
+          date: r[0],
+          weight: nz(r[1]),
+          sleep: nz(r[2]),
+          sleepScore: nz(r[3]),
+          readiness: nz(r[4]),
+          hrv: nz(r[5]),
+          rhr: nz(r[6]),
+          steps: nz(r[7]),
+          protein: nz(r[8]),
+          calories: nz(r[9])
+        }));
+        setDailyMetrics(loaded);
+      } catch (e) {
+        setErrorMsg(String(e));
+      } finally {
+        setLoading(false);
+      }
+    }, [accessToken]);
+    useEffect(() => {
+      if (accessToken) loadData();
+    }, [accessToken, loadData]);
+    const saveTimeout = useRef(null);
+    function persist(nextMetrics) {
+      if (saveTimeout.current) clearTimeout(saveTimeout.current);
+      saveTimeout.current = setTimeout(async () => {
+        setSaveState("saving");
+        try {
+          const nz = (v) => v === null || v === void 0 ? "" : v;
+          const rows = nextMetrics.slice().sort((a, b) => a.date.localeCompare(b.date)).map((d) => [d.date, nz(d.weight), nz(d.sleep), nz(d.sleepScore), nz(d.readiness), nz(d.hrv), nz(d.rhr), nz(d.steps), nz(d.protein), nz(d.calories)]);
+          await api.clearRange("DailyMetrics!A2:J10000");
+          if (rows.length) await api.updateRange("DailyMetrics!A2", rows);
+          setSaveState("saved");
+          setTimeout(() => setSaveState("idle"), 1200);
+        } catch (e) {
+          setSaveState("error");
+          setErrorMsg(String(e));
+        }
+      }, 400);
+    }
+    function saveDailyEntry(date, values) {
+      setDailyMetrics((prev) => {
+        const idx = prev.findIndex((d) => d.date === date);
+        let next = [...prev];
+        if (idx >= 0) {
+          const merged = { ...next[idx] };
+          for (const k of Object.keys(values)) if (values[k] !== null && !Number.isNaN(values[k])) merged[k] = values[k];
+          next[idx] = merged;
+        } else {
+          const base = { date, weight: null, hrv: null, rhr: null, protein: null, calories: null, sleep: null, sleepScore: null, readiness: null, steps: null };
+          for (const k of Object.keys(values)) if (values[k] !== null && !Number.isNaN(values[k])) base[k] = values[k];
+          next.push(base);
+        }
+        persist(next);
+        return next;
+      });
+    }
+    function clearDailyValue(date, key) {
+      setDailyMetrics((prev) => {
+        const next = prev.map((d) => d.date === date ? { ...d, [key]: null } : d);
+        persist(next);
+        return next;
+      });
+    }
+    function moveDailyValue(oldDate, key, newDate, value) {
+      setDailyMetrics((prev) => {
+        let next = prev.map((d) => d.date === oldDate ? { ...d, [key]: null } : d);
+        const idx = next.findIndex((d) => d.date === newDate);
+        if (idx >= 0) next[idx] = { ...next[idx], [key]: value };
+        else next.push({ date: newDate, weight: null, hrv: null, rhr: null, protein: null, calories: null, sleep: null, sleepScore: null, readiness: null, steps: null, [key]: value });
+        persist(next);
+        return next;
+      });
+    }
+    function getMetricSeries(key) {
+      return dailyMetrics.filter((d) => d[key] !== null && d[key] !== void 0).map((d) => ({ date: d.date, value: d[key] })).sort((a, b) => a.date.localeCompare(b.date));
+    }
+    function computeMetricStats(key) {
+      const series = getMetricSeries(key);
+      if (!series.length) return { latest: null, avg7: null, delta: null };
+      const last7 = series.slice(-7);
+      const avg7 = last7.reduce((a, b) => a + b.value, 0) / last7.length;
+      const latest = series[series.length - 1].value;
+      return { latest, avg7, delta: latest - avg7 };
+    }
+    function fmtMetricValue(key, val) {
+      const def = METRIC_DEFS.find((m) => m.key === key);
+      if (key === "sleep") return formatSleepHours(val);
+      return `${val}${(def == null ? void 0 : def.unit) || ""}`;
+    }
+    function commitDailyForm(morningValues, nutritionValues) {
+      saveDailyEntry(dailyForm.date, morningValues);
+      saveDailyEntry(dailyForm.nutritionDate, nutritionValues);
+      setDailyForm({ date: dailyForm.date, nutritionDate: dailyForm.nutritionDate, weight: "", hrv: "", rhr: "", protein: "", calories: "", sleep: "", sleepScore: "", readiness: "", steps: "" });
+      setPendingDailyOverwrite(null);
+    }
+    function submitDailyForm() {
+      const morningValues = {}, nutritionValues = {};
+      for (const m of METRIC_DEFS) {
+        const raw = dailyForm[m.key];
+        const val = m.key === "sleep" ? parseSleepInput(raw) : raw === "" || raw === void 0 ? null : parseFloat(raw);
+        if (m.group === "nutrition") nutritionValues[m.key] = val;
+        else morningValues[m.key] = val;
+      }
+      const morningEntry = dailyMetrics.find((d) => d.date === dailyForm.date);
+      const nutritionEntry = dailyMetrics.find((d) => d.date === dailyForm.nutritionDate);
+      const conflicts = [];
+      for (const m of METRIC_DEFS) {
+        const isNutrition = m.group === "nutrition";
+        const newVal = isNutrition ? nutritionValues[m.key] : morningValues[m.key];
+        const existingEntry = isNutrition ? nutritionEntry : morningEntry;
+        const oldVal = existingEntry ? existingEntry[m.key] : null;
+        if (newVal !== null && !Number.isNaN(newVal) && oldVal !== null && oldVal !== void 0) {
+          conflicts.push({ date: isNutrition ? dailyForm.nutritionDate : dailyForm.date, label: m.label, oldDisplay: fmtMetricValue(m.key, oldVal), newDisplay: fmtMetricValue(m.key, newVal) });
+        }
+      }
+      if (conflicts.length > 0) {
+        setPendingDailyOverwrite({ morningValues, nutritionValues, conflicts });
+        return;
+      }
+      commitDailyForm(morningValues, nutritionValues);
+    }
+    if (checkingSilentAuth) return /* @__PURE__ */ React.createElement("div", { style: { padding: 24, color: "#a3a3a3" } }, "Checking sign-in status\u2026");
+    if (!accessToken) {
+      return /* @__PURE__ */ React.createElement("div", { className: "max-w-md mx-auto p-6" }, /* @__PURE__ */ React.createElement("h1", { className: "text-xl font-bold mb-4" }, "X3LOG \u2014 Daily (Stage 3 test)"), /* @__PURE__ */ React.createElement("button", { onClick: () => tokenClient && tokenClient.requestAccessToken(), className: "w-full py-3 rounded-lg bg-orange-500 text-neutral-950 font-semibold" }, "Sign in with Google"), errorMsg && /* @__PURE__ */ React.createElement("div", { className: "text-red-400 text-xs mt-3 whitespace-pre-wrap" }, errorMsg));
+    }
+    return /* @__PURE__ */ React.createElement("div", { className: "max-w-md mx-auto p-4 pb-16" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("h1", { className: "text-xl font-bold" }, "Daily"), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-400" }, saveState === "saving" && "Saving\u2026", saveState === "saved" && "Saved \u2713", saveState === "error" && "Save failed")), loading && /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm mb-3" }, "Loading from Sheet\u2026"), errorMsg && /* @__PURE__ */ React.createElement("div", { className: "text-red-400 text-xs mb-3 whitespace-pre-wrap" }, errorMsg), /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, pendingDailyOverwrite && /* @__PURE__ */ React.createElement("div", { className: "bg-red-500/10 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm text-neutral-50 font-medium mb-1" }, "This will overwrite existing values"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400 mb-3" }, "These fields already have a value saved for that date. Saving will replace them."), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5 mb-3" }, pendingDailyOverwrite.conflicts.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "flex items-center justify-between text-sm bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-200" }, c.label, " ", /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500 text-xs" }, "(", fmtDateShort(dateToTs(c.date)), ")")), /* @__PURE__ */ React.createElement("span", { className: "font-mono text-xs" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500" }, c.oldDisplay), /* @__PURE__ */ React.createElement("span", { className: "text-neutral-400 mx-1" }, "\u2192"), /* @__PURE__ */ React.createElement("span", { className: "text-orange-500" }, c.newDisplay))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => commitDailyForm(pendingDailyOverwrite.morningValues, pendingDailyOverwrite.nutritionValues), className: "flex-1 py-2 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Overwrite"), /* @__PURE__ */ React.createElement("button", { onClick: () => setPendingDailyOverwrite(null), className: "flex-1 py-2 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Cancel"))), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-1" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "This morning"), /* @__PURE__ */ React.createElement("input", { type: "date", value: dailyForm.date, onChange: (e) => setDailyForm((prev) => ({ ...prev, date: e.target.value, nutritionDate: addDays(e.target.value, -1) })), className: "bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-sm text-neutral-200" })), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-neutral-400 mb-3" }, "Weight, sleep, sleep score, readiness, HRV, and RHR \u2014 today's reading."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-4" }, METRIC_DEFS.filter((m) => m.group === "morning").map((m) => /* @__PURE__ */ React.createElement("div", { key: m.key }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, m.label, " ", m.unit && `(${m.unit})`), m.inputType === "time" ? /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "h:mm", value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }) : /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: m.step, value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-1 pt-3 border-t border-neutral-800" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Yesterday's totals"), /* @__PURE__ */ React.createElement("input", { type: "date", value: dailyForm.nutritionDate, onChange: (e) => setDailyForm((prev) => ({ ...prev, nutritionDate: e.target.value })), className: "bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-sm text-neutral-200" })), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-neutral-400 mb-3" }, "Steps, protein, and calories always post to this date, not today's."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, METRIC_DEFS.filter((m) => m.group === "nutrition").map((m) => /* @__PURE__ */ React.createElement("div", { key: m.key }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, m.label, " ", m.unit && `(${m.unit})`), /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: m.step, value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })))), /* @__PURE__ */ React.createElement("button", { onClick: submitDailyForm, className: "w-full mt-4 py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, "Save")), METRIC_DEFS.map((m) => /* @__PURE__ */ React.createElement(
+      MetricCard,
+      {
+        key: m.key,
+        def: m,
+        stats: computeMetricStats(m.key),
+        series: getMetricSeries(m.key),
+        expanded: expandedMetric[m.key] === true,
+        onToggle: () => setExpandedMetric((prev) => ({ ...prev, [m.key]: prev[m.key] !== true })),
+        dailyEditing,
+        setDailyEditing,
+        dailyConfirmDelete,
+        setDailyConfirmDelete,
+        saveDailyEntry,
+        clearDailyValue,
+        moveDailyValue
+      }
+    ))), /* @__PURE__ */ React.createElement("button", { onClick: loadData, className: "w-full mt-4 py-2.5 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Reload from Sheet"));
+  }
+  function StatBox({ label, value, accent }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-950 border border-neutral-800 rounded-xl px-2 py-2.5 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "text-[10px] uppercase tracking-wide text-neutral-500 mb-0.5" }, label), /* @__PURE__ */ React.createElement("div", { className: `text-base font-bold font-mono ${accent ? "text-emerald-400" : "text-neutral-50"}` }, value));
+  }
+  function MetricCard({ def, stats, series, expanded, onToggle, dailyEditing, setDailyEditing, dailyConfirmDelete, setDailyConfirmDelete, saveDailyEntry, clearDailyValue, moveDailyValue }) {
+    const [historyExpanded, setHistoryExpanded] = useState(false);
+    const chartData = series.map((s) => ({ date: fmtDateShort(dateToTs(s.date)), value: s.value }));
+    const fmt = (v) => {
+      if (v === null || v === void 0) return "\u2014";
+      if (def.key === "sleep") return formatSleepHours(v);
+      return `${v.toFixed(def.decimals)}${def.unit ? def.unit : ""}`;
+    };
+    const deltaStr = stats.delta === null ? "\u2014" : def.key === "sleep" ? `${stats.delta > 0 ? "+" : stats.delta < 0 ? "\u2212" : ""}${formatSleepHours(Math.abs(stats.delta))}` : `${stats.delta > 0 ? "+" : stats.delta < 0 ? "\u2212" : ""}${Math.abs(stats.delta).toFixed(def.decimals)}${def.unit}`;
+    return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: onToggle }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, def.label), expanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-400" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-400" })), expanded && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-3" }, /* @__PURE__ */ React.createElement(StatBox, { label: "Latest", value: fmt(stats.latest) }), /* @__PURE__ */ React.createElement(StatBox, { label: "7-Day Avg", value: fmt(stats.avg7) }), /* @__PURE__ */ React.createElement(StatBox, { label: "+/- Avg", value: deltaStr, accent: true })), chartData.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { height: 128 }, className: "mb-3" }, /* @__PURE__ */ React.createElement(ResponsiveContainer, { width: "100%", height: "100%", minWidth: 0, minHeight: 0 }, /* @__PURE__ */ React.createElement(LineChart, { data: chartData, margin: { top: 4, right: 4, left: -30, bottom: 0 } }, /* @__PURE__ */ React.createElement(CartesianGrid, { strokeDasharray: "3 3", stroke: "#27272a" }), /* @__PURE__ */ React.createElement(XAxis, { dataKey: "date", stroke: "#71717a", fontSize: 10 }), /* @__PURE__ */ React.createElement(YAxis, { stroke: "#71717a", fontSize: 10, domain: ["auto", "auto"] }), /* @__PURE__ */ React.createElement(Tooltip, { contentStyle: { background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8, fontSize: 12 }, labelStyle: { color: "#e4e4e7" } }), /* @__PURE__ */ React.createElement(Line, { type: "monotone", dataKey: "value", stroke: "#f97316", strokeWidth: 2, dot: { r: 2, fill: "#f97316" } })))), series.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400" }, "No entries yet.") : /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "History"), (() => {
+      const reversed = [...series].reverse();
+      const visible = historyExpanded ? reversed.slice(0, 14) : reversed.slice(0, 5);
+      return visible.map((s) => {
+        const rowKey = `${s.date}|${def.key}`;
+        return /* @__PURE__ */ React.createElement(
+          DailyHistoryRow,
+          {
+            key: rowKey,
+            date: s.date,
+            value: s.value,
+            def,
+            isEditing: dailyEditing === rowKey,
+            isConfirming: dailyConfirmDelete === rowKey,
+            onEdit: () => setDailyEditing(rowKey),
+            onCancelEdit: () => setDailyEditing(null),
+            onSave: (newVal, newDate) => {
+              if (newDate && newDate !== s.date) moveDailyValue(s.date, def.key, newDate, newVal);
+              else saveDailyEntry(s.date, { [def.key]: newVal });
+              setDailyEditing(null);
+            },
+            onDelete: () => setDailyConfirmDelete(rowKey),
+            onConfirmDelete: () => {
+              clearDailyValue(s.date, def.key);
+              setDailyConfirmDelete(null);
+            },
+            onCancelDelete: () => setDailyConfirmDelete(null)
+          }
+        );
+      });
+    })(), series.length > 5 && /* @__PURE__ */ React.createElement("button", { onClick: () => setHistoryExpanded((prev) => !prev), className: "w-full text-center text-xs text-neutral-400 py-1.5" }, historyExpanded ? "Show less" : `Show more (${Math.min(series.length, 14) - 5} more)`))));
+  }
+  function DailyHistoryRow({ date, value, def, isEditing, isConfirming, onEdit, onCancelEdit, onSave, onDelete, onConfirmDelete, onCancelDelete }) {
+    const isSleep = def.key === "sleep";
+    const [val, setVal] = useState(isSleep ? formatSleepHours(value) : String(value));
+    const [editDate, setEditDate] = useState(date);
+    if (isEditing) {
+      return /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 bg-neutral-900 border border-orange-500 rounded-lg px-2.5 py-2 flex-wrap", style: { borderWidth: 1 } }, /* @__PURE__ */ React.createElement("input", { type: "date", value: editDate, onChange: (e) => setEditDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-md px-1.5 py-1 text-xs text-neutral-200", style: { width: 112 } }), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: isSleep ? "text" : "number",
+          placeholder: isSleep ? "h:mm" : void 0,
+          value: val,
+          onChange: (e) => setVal(e.target.value),
+          className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-50",
+          style: { minWidth: 64 }
+        }
+      ), /* @__PURE__ */ React.createElement("button", { onClick: () => onSave(isSleep ? parseSleepInput(val) : parseFloat(val), editDate), className: "text-emerald-400 p-1" }, /* @__PURE__ */ React.createElement(Check, { size: 15 })), /* @__PURE__ */ React.createElement("button", { onClick: onCancelEdit, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(X, { size: 15 })));
+    }
+    return /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-400", style: { width: 60, flexShrink: 0 } }, fmtDateShort(dateToTs(date))), /* @__PURE__ */ React.createElement("span", { className: "font-mono font-semibold text-neutral-50" }, isSleep ? formatSleepHours(value) : `${value.toFixed(def.decimals)}${def.unit}`), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-1 shrink-0" }, isConfirming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: onConfirmDelete, className: "text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md" }, "Delete"), /* @__PURE__ */ React.createElement("button", { onClick: onCancelDelete, className: "text-neutral-400 text-xs px-2 py-1 bg-neutral-800 rounded-md" }, "Cancel")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: onEdit, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), /* @__PURE__ */ React.createElement("button", { onClick: onDelete, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 })))));
+  }
+  try {
+    window.__stage3Booted = true;
+    ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(App, null));
+  } catch (e) {
+    document.getElementById("boot-error").textContent = "Render error: " + e.message;
+    console.error(e);
+  }
+})();
+
+</script>
+</body>
+</html>
