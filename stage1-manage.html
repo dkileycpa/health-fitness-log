@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>X3LOG — Manage (Stage 1)</title>
+<script src="https://accounts.google.com/gsi/client" async defer crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<style>
+  /* Minimal hand-rolled utility set replacing the Tailwind Play CDN (removed — it injects
+     scripts at runtime and was conflicting with Babel standalone). */
+  * { box-sizing: border-box; }
+  .flex { display: flex; }
+  .flex-1 { flex: 1 1 0%; }
+  .flex-col { flex-direction: column; }
+  .items-center { align-items: center; }
+  .justify-between { justify-content: space-between; }
+  .justify-center { justify-content: center; }
+  .text-left { text-align: left; }
+  .gap-1 { gap: .25rem; }
+  .gap-2 { gap: .5rem; }
+  .space-y-1\.5 > * + * { margin-top: .375rem; }
+  .space-y-4 > * + * { margin-top: 1rem; }
+  .rounded-lg { border-radius: .5rem; }
+  .rounded-md { border-radius: .375rem; }
+  .rounded-2xl { border-radius: 1rem; }
+  .border { border-width: 1px; border-style: solid; border-color: #262626; }
+  .border-neutral-800 { border-color: #262626; }
+  .border-orange-500\/50 { border-color: rgba(249,115,22,.5); }
+  .font-bold { font-weight: 700; }
+  .font-semibold { font-weight: 600; }
+  .text-xs { font-size: .75rem; line-height: 1rem; }
+  .text-sm { font-size: .875rem; line-height: 1.25rem; }
+  .text-xl { font-size: 1.25rem; line-height: 1.75rem; }
+  .text-\[10px\] { font-size: 10px; }
+  .text-\[11px\] { font-size: 11px; }
+  .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .uppercase { text-transform: uppercase; }
+  .line-through { text-decoration: line-through; }
+  .whitespace-pre-wrap { white-space: pre-wrap; }
+  .overflow-hidden { overflow: hidden; }
+  .shrink-0 { flex-shrink: 0; }
+  .opacity-30 { opacity: .3; }
+  .w-10 { width: 2.5rem; }
+  .w-full { width: 100%; }
+  .h-10 { height: 2.5rem; }
+  .max-w-md { max-width: 28rem; }
+  .min-w-0 { min-width: 0px; }
+  .mx-auto { margin-left: auto; margin-right: auto; }
+  .mb-2 { margin-bottom: .5rem; }
+  .mb-4 { margin-bottom: 1rem; }
+  .mt-3 { margin-top: .75rem; }
+  .mt-4 { margin-top: 1rem; }
+  .pb-16 { padding-bottom: 4rem; }
+  .p-1 { padding: .25rem; }
+  .p-1\.5 { padding: .375rem; }
+  .p-4 { padding: 1rem; }
+  .p-6 { padding: 1.5rem; }
+  .px-1\.5 { padding-left: .375rem; padding-right: .375rem; }
+  .px-2 { padding-left: .5rem; padding-right: .5rem; }
+  .px-3 { padding-left: .75rem; padding-right: .75rem; }
+  .px-4 { padding-left: 1rem; padding-right: 1rem; }
+  .py-1 { padding-top: .25rem; padding-bottom: .25rem; }
+  .py-2 { padding-top: .5rem; padding-bottom: .5rem; }
+  .py-2\.5 { padding-top: .625rem; padding-bottom: .625rem; }
+  .py-3 { padding-top: .75rem; padding-bottom: .75rem; }
+  .bg-neutral-800 { background-color: #262626; }
+  .bg-neutral-900 { background-color: #171717; }
+  .bg-neutral-950 { background-color: #0a0a0a; }
+  .bg-neutral-950\/50 { background-color: rgba(10,10,10,.5); }
+  .bg-orange-500 { background-color: #f97316; }
+  .bg-red-500\/10 { background-color: rgba(239,68,68,.1); }
+  .text-emerald-400 { color: #34d399; }
+  .text-neutral-50 { color: #fafafa; }
+  .text-neutral-100 { color: #f5f5f5; }
+  .text-neutral-200 { color: #e5e5e5; }
+  .text-neutral-300 { color: #d4d4d4; }
+  .text-neutral-400 { color: #a3a3a3; }
+  .text-neutral-500 { color: #737373; }
+  .text-neutral-600 { color: #525252; }
+  .text-neutral-950 { color: #0a0a0a; }
+  .text-red-400 { color: #f87171; }
+  button { font-family: inherit; cursor: pointer; }
+  input { font-family: inherit; }
+</style>
+<style>
+  body { background:#0a0a0a; color:#fafafa; font-family: -apple-system, sans-serif; }
+  ::-webkit-scrollbar { display:none; }
+  #boot-error { padding:16px; color:#f87171; font-size:12px; white-space:pre-wrap; word-break:break-word; }
+</style>
+<script src="icons.js"></script>
+</head>
+<body class="text-neutral-50">
+<div id="root"><div style="padding:16px;color:#a3a3a3;">Loading…</div></div>
+<div id="boot-error"></div>
+
+<script>
+  function showBootError(msg) {
+    var el = document.getElementById("boot-error");
+    if (el) el.textContent = "Error: " + msg;
+    console.error(msg);
+  }
+  window.onerror = function (message, source, lineno, colno, error) {
+    showBootError(message + " (line " + lineno + ")");
+  };
+  window.addEventListener("unhandledrejection", function (e) {
+    showBootError("Unhandled promise rejection: " + (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+  window.__stage1Booted = false;
+  setTimeout(function () {
+    if (!window.__stage1Booted) {
+      showBootError(
+        "Boot check failed after 4s.\n" +
+        "React loaded: " + (typeof React !== "undefined") + "\n" +
+        "ReactDOM loaded: " + (typeof ReactDOM !== "undefined") + "\n" +
+        "Babel loaded: " + (typeof Babel !== "undefined") + "\n" +
+        "Google Identity Services loaded: " + (typeof google !== "undefined" && !!(google && google.accounts))
+      );
+    }
+  }, 4000);
+</script>
+
+<script>
+(() => {
+  const { useState, useEffect, useCallback } = React;
+  const { ChevronUp, ChevronDown, Pencil, Trash2, Eye, EyeOff, Plus, Check, X } = window.LucideIcons;
+  const CLIENT_ID = "242814993883-qubuj093i89cliq097qb89em016h5cfe.apps.googleusercontent.com";
+  const SPREADSHEET_ID = "19JalMbLch7TlUqduehJWctz0EabC1akRuoEgLpDG2xU";
+  const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
+  function genId(prefix) {
+    return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+  function useSheetsApi(accessToken) {
+    const authHeaders = { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
+    async function getRange(range) {
+      const res = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}`,
+        { headers: authHeaders }
+      );
+      if (!res.ok) throw new Error(`Read failed (${res.status}): ${await res.text()}`);
+      const data = await res.json();
+      return data.values || [];
+    }
+    async function clearRange(range) {
+      const res = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:clear`,
+        { method: "POST", headers: authHeaders }
+      );
+      if (!res.ok) throw new Error(`Clear failed (${res.status}): ${await res.text()}`);
+    }
+    async function updateRange(range, values) {
+      if (values.length === 0) return;
+      const res = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
+        { method: "PUT", headers: authHeaders, body: JSON.stringify({ values }) }
+      );
+      if (!res.ok) throw new Error(`Write failed (${res.status}): ${await res.text()}`);
+    }
+    return { getRange, clearRange, updateRange };
+  }
+  function App() {
+    const [accessToken, setAccessToken] = useState(null);
+    const [tokenClient, setTokenClient] = useState(null);
+    const [checkingSilentAuth, setCheckingSilentAuth] = useState(true);
+    const [routines, setRoutines] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [saveState, setSaveState] = useState("idle");
+    const [errorMsg, setErrorMsg] = useState(null);
+    const [manageRenaming, setManageRenaming] = useState(null);
+    const [expandedRoutine, setExpandedRoutine] = useState({});
+    const [confirmDelete, setConfirmDelete] = useState(null);
+    const [newRoutineName, setNewRoutineName] = useState("");
+    const [newExName, setNewExName] = useState({});
+    const [newExUnit, setNewExUnit] = useState({});
+    const api = useSheetsApi(accessToken);
+    const TOKEN_KEY = "x3log_access_token";
+    const TOKEN_EXPIRY_KEY = "x3log_token_expiry";
+    function cacheToken(token, expiresInSeconds) {
+      const expiryTs = Date.now() + expiresInSeconds * 1e3 - 6e4;
+      try {
+        localStorage.setItem(TOKEN_KEY, token);
+        localStorage.setItem(TOKEN_EXPIRY_KEY, String(expiryTs));
+      } catch (e) {
+      }
+    }
+    function getCachedToken() {
+      try {
+        const token = localStorage.getItem(TOKEN_KEY);
+        const expiry = parseInt(localStorage.getItem(TOKEN_EXPIRY_KEY), 10);
+        if (token && expiry && Date.now() < expiry) return token;
+      } catch (e) {
+      }
+      return null;
+    }
+    useEffect(() => {
+      const cached = getCachedToken();
+      if (cached) {
+        setAccessToken(cached);
+        setCheckingSilentAuth(false);
+        const client2 = google.accounts.oauth2.initTokenClient({
+          client_id: CLIENT_ID,
+          scope: SCOPES,
+          callback: (resp) => {
+            if (resp.error) {
+              setErrorMsg("Sign-in failed: " + JSON.stringify(resp));
+              return;
+            }
+            cacheToken(resp.access_token, resp.expires_in || 3500);
+            setAccessToken(resp.access_token);
+          }
+        });
+        setTokenClient(client2);
+        return;
+      }
+      const client = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: (resp) => {
+          setCheckingSilentAuth(false);
+          if (resp.error) {
+            if (resp.error !== "user_logged_out" && resp.error !== "immediate_failed") {
+              setErrorMsg("Sign-in failed: " + JSON.stringify(resp));
+            }
+            return;
+          }
+          cacheToken(resp.access_token, resp.expires_in || 3500);
+          setAccessToken(resp.access_token);
+        }
+      });
+      setTokenClient(client);
+      client.requestAccessToken({ prompt: "" });
+      const safetyTimeout = setTimeout(() => setCheckingSilentAuth(false), 3e3);
+      return () => clearTimeout(safetyTimeout);
+    }, []);
+    const loadData = useCallback(async () => {
+      setLoading(true);
+      setErrorMsg(null);
+      try {
+        const routineRows = await api.getRange("Routines!A2:C10000");
+        const exerciseRows = await api.getRange("Exercises!A2:F10000");
+        const loadedRoutines = routineRows.filter((r) => r[0]).map((r) => ({ id: r[0], name: r[1] || "", sortOrder: parseInt(r[2], 10) || 0, exercises: [] })).sort((a, b) => a.sortOrder - b.sortOrder);
+        const byRoutine = {};
+        exerciseRows.filter((r) => r[0]).forEach((r) => {
+          const ex = {
+            id: r[0],
+            routineId: r[1],
+            name: r[2] || "",
+            unit: r[3] || "seconds",
+            archived: r[4] === "TRUE" || r[4] === "true" || r[4] === true,
+            sortOrder: parseInt(r[5], 10) || 0
+          };
+          if (!byRoutine[ex.routineId]) byRoutine[ex.routineId] = [];
+          byRoutine[ex.routineId].push(ex);
+        });
+        for (const key in byRoutine) byRoutine[key].sort((a, b) => a.sortOrder - b.sortOrder);
+        loadedRoutines.forEach((r) => {
+          r.exercises = byRoutine[r.id] || [];
+        });
+        setRoutines(loadedRoutines);
+      } catch (e) {
+        setErrorMsg(String(e));
+      } finally {
+        setLoading(false);
+      }
+    }, [accessToken]);
+    useEffect(() => {
+      if (accessToken) loadData();
+    }, [accessToken, loadData]);
+    const saveTimeout = React.useRef(null);
+    function persist(nextRoutines) {
+      if (saveTimeout.current) clearTimeout(saveTimeout.current);
+      saveTimeout.current = setTimeout(async () => {
+        setSaveState("saving");
+        try {
+          const routineRows = nextRoutines.map((r, i) => [r.id, r.name, i]);
+          const exerciseRows = [];
+          nextRoutines.forEach((r) => {
+            r.exercises.forEach((ex, i) => {
+              exerciseRows.push([ex.id, r.id, ex.name, ex.unit || "seconds", ex.archived ? "TRUE" : "FALSE", i]);
+            });
+          });
+          await api.clearRange("Routines!A2:C10000");
+          await api.clearRange("Exercises!A2:F10000");
+          if (routineRows.length) await api.updateRange("Routines!A2", routineRows);
+          if (exerciseRows.length) await api.updateRange("Exercises!A2", exerciseRows);
+          setSaveState("saved");
+          setTimeout(() => setSaveState("idle"), 1500);
+        } catch (e) {
+          setSaveState("error");
+          setErrorMsg(String(e));
+        }
+      }, 500);
+    }
+    function updateRoutines(updater) {
+      setRoutines((prev) => {
+        const next = updater(prev);
+        persist(next);
+        return next;
+      });
+    }
+    function addRoutine() {
+      const name = newRoutineName.trim();
+      if (!name) return;
+      updateRoutines((prev) => [...prev, { id: genId("routine"), name, exercises: [] }]);
+      setNewRoutineName("");
+    }
+    function deleteRoutine(routineId) {
+      updateRoutines((prev) => prev.filter((r) => r.id !== routineId));
+      setConfirmDelete(null);
+    }
+    function renameRoutine(routineId, name) {
+      if (!name.trim()) return;
+      updateRoutines((prev) => prev.map((r) => r.id === routineId ? { ...r, name: name.trim() } : r));
+      setManageRenaming(null);
+    }
+    function addExercise(routineId) {
+      const name = (newExName[routineId] || "").trim();
+      if (!name) return;
+      const unit = newExUnit[routineId] || "seconds";
+      updateRoutines(
+        (prev) => prev.map(
+          (r) => r.id === routineId ? { ...r, exercises: [...r.exercises, { id: genId("ex"), name, unit, archived: false }] } : r
+        )
+      );
+      setNewExName((prev) => ({ ...prev, [routineId]: "" }));
+    }
+    function renameExercise(routineId, exId, name) {
+      if (!name.trim()) return;
+      updateRoutines(
+        (prev) => prev.map(
+          (r) => r.id === routineId ? { ...r, exercises: r.exercises.map((ex) => ex.id === exId ? { ...ex, name: name.trim() } : ex) } : r
+        )
+      );
+      setManageRenaming(null);
+    }
+    function toggleArchive(routineId, exId, archived) {
+      updateRoutines(
+        (prev) => prev.map(
+          (r) => r.id === routineId ? { ...r, exercises: r.exercises.map((ex) => ex.id === exId ? { ...ex, archived } : ex) } : r
+        )
+      );
+    }
+    function toggleUnit(routineId, exId) {
+      updateRoutines(
+        (prev) => prev.map(
+          (r) => r.id === routineId ? {
+            ...r,
+            exercises: r.exercises.map(
+              (ex) => ex.id === exId ? { ...ex, unit: (ex.unit || "seconds") === "seconds" ? "reps" : "seconds" } : ex
+            )
+          } : r
+        )
+      );
+    }
+    function moveExercise(routineId, exId, direction) {
+      updateRoutines(
+        (prev) => prev.map((r) => {
+          if (r.id !== routineId) return r;
+          const idx = r.exercises.findIndex((ex) => ex.id === exId);
+          const swapIdx = idx + direction;
+          if (idx < 0 || swapIdx < 0 || swapIdx >= r.exercises.length) return r;
+          const exercises = [...r.exercises];
+          [exercises[idx], exercises[swapIdx]] = [exercises[swapIdx], exercises[idx]];
+          return { ...r, exercises };
+        })
+      );
+    }
+    if (!accessToken) {
+      return /* @__PURE__ */ React.createElement("div", { className: "max-w-md mx-auto p-6" }, /* @__PURE__ */ React.createElement("h1", { className: "text-xl font-bold mb-4" }, "X3LOG \u2014 Manage (Stage 1 test)"), checkingSilentAuth ? /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm" }, "Checking sign-in status\u2026") : /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => tokenClient && tokenClient.requestAccessToken(),
+          className: "w-full py-3 rounded-lg bg-orange-500 text-neutral-950 font-semibold"
+        },
+        "Sign in with Google"
+      ), errorMsg && /* @__PURE__ */ React.createElement("div", { className: "text-red-400 text-xs mt-3 whitespace-pre-wrap" }, errorMsg));
+    }
+    return /* @__PURE__ */ React.createElement("div", { className: "max-w-md mx-auto p-4 pb-16" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-4" }, /* @__PURE__ */ React.createElement("h1", { className: "text-xl font-bold" }, "Manage"), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-400" }, saveState === "saving" && "Saving\u2026", saveState === "saved" && "Saved \u2713", saveState === "error" && "Save failed")), loading && /* @__PURE__ */ React.createElement("div", { className: "text-neutral-400 text-sm mb-4" }, "Loading from Sheet\u2026"), errorMsg && /* @__PURE__ */ React.createElement("div", { className: "text-red-400 text-xs mb-4 whitespace-pre-wrap" }, errorMsg), /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, routines.map((r) => {
+      const isExpanded = expandedRoutine[r.id] === true;
+      const liveCount = r.exercises.filter((ex) => !ex.archived).length;
+      return /* @__PURE__ */ React.createElement("div", { key: r.id, className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, manageRenaming === `routine-${r.id}` ? /* @__PURE__ */ React.createElement(RenameInline, { initial: r.name, onSave: (name) => renameRoutine(r.id, name), onCancel: () => setManageRenaming(null) }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => setExpandedRoutine((prev) => ({ ...prev, [r.id]: prev[r.id] !== true })),
+          className: "flex items-center gap-2 min-w-0 flex-1 text-left"
+        },
+        /* @__PURE__ */ React.createElement("span", { className: "text-neutral-400 shrink-0" }, isExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 16 }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 16 })),
+        /* @__PURE__ */ React.createElement("span", { className: "font-bold truncate" }, r.name),
+        /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-500 shrink-0" }, liveCount, " movement", liveCount === 1 ? "" : "s")
+      ), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setManageRenaming(`routine-${r.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 14 })), confirmDelete === `routine-${r.id}` ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => deleteRoutine(r.id), className: "text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md" }, "Confirm"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDelete(null), className: "text-neutral-400 text-xs px-2 py-1 bg-neutral-800 rounded-md" }, "Cancel")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDelete(`routine-${r.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }))))), isExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, r.exercises.map((ex, idx) => /* @__PURE__ */ React.createElement("div", { key: ex.id, className: `flex items-center justify-between rounded-lg px-2 py-2 border border-neutral-800 ${ex.archived ? "bg-neutral-950/50" : "bg-neutral-950"}` }, manageRenaming === `ex-${ex.id}` ? /* @__PURE__ */ React.createElement(RenameInline, { initial: ex.name, onSave: (name) => renameExercise(r.id, ex.id, name), onCancel: () => setManageRenaming(null) }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col shrink-0 text-neutral-500" }, /* @__PURE__ */ React.createElement("button", { onClick: () => moveExercise(r.id, ex.id, -1), disabled: idx === 0, className: idx === 0 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronUp, { size: 14 })), /* @__PURE__ */ React.createElement("button", { onClick: () => moveExercise(r.id, ex.id, 1), disabled: idx === r.exercises.length - 1, className: idx === r.exercises.length - 1 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronDown, { size: 14 }))), /* @__PURE__ */ React.createElement("span", { className: `text-sm truncate ${ex.archived ? "text-neutral-600 line-through" : "text-neutral-200"}` }, ex.name)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => toggleUnit(r.id, ex.id), className: "text-[10px] font-semibold px-1.5 py-1 rounded-md bg-neutral-900 border border-neutral-800 text-neutral-400 uppercase" }, (ex.unit || "seconds") === "reps" ? "Reps" : "Time"), /* @__PURE__ */ React.createElement("button", { onClick: () => setManageRenaming(`ex-${ex.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), ex.archived ? /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchive(r.id, ex.id, false), className: "text-emerald-400 text-xs px-2 py-1 flex items-center gap-1" }, /* @__PURE__ */ React.createElement(Eye, { size: 13 }), " Show") : /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchive(r.id, ex.id, true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(EyeOff, { size: 13 }))))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-3" }, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "text",
+          placeholder: "New exercise",
+          value: newExName[r.id] || "",
+          onChange: (e) => setNewExName((prev) => ({ ...prev, [r.id]: e.target.value })),
+          className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200"
+        }
+      ), /* @__PURE__ */ React.createElement("div", { className: "flex shrink-0 rounded-lg overflow-hidden border border-neutral-800" }, ["seconds", "reps"].map((u) => /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: u,
+          onClick: () => setNewExUnit((prev) => ({ ...prev, [r.id]: u })),
+          className: `px-2 py-2 text-[11px] font-semibold uppercase ${(newExUnit[r.id] || "seconds") === u ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 text-neutral-400"}`
+        },
+        u === "reps" ? "Reps" : "Time"
+      ))), /* @__PURE__ */ React.createElement("button", { onClick: () => addExercise(r.id), className: "w-10 h-10 shrink-0 flex items-center justify-center rounded-lg bg-neutral-800 text-neutral-200" }, /* @__PURE__ */ React.createElement(Plus, { size: 16 })))));
+    })), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4 mt-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-300 mb-2" }, "New routine"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "text",
+        placeholder: "e.g. Leg Day",
+        value: newRoutineName,
+        onChange: (e) => setNewRoutineName(e.target.value),
+        className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200"
+      }
+    ), /* @__PURE__ */ React.createElement("button", { onClick: addRoutine, className: "px-4 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Add"))), /* @__PURE__ */ React.createElement("button", { onClick: loadData, className: "w-full mt-4 py-2.5 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Reload from Sheet"));
+  }
+  function RenameInline({ initial, onSave, onCancel }) {
+    const [val, setVal] = useState(initial);
+    return /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-1" }, /* @__PURE__ */ React.createElement("input", { autoFocus: true, type: "text", value: val, onChange: (e) => setVal(e.target.value), className: "flex-1 bg-neutral-950 border border-orange-500/50 rounded-md px-2 py-1 text-sm text-neutral-100" }), /* @__PURE__ */ React.createElement("button", { onClick: () => onSave(val), className: "text-emerald-400 p-1" }, /* @__PURE__ */ React.createElement(Check, { size: 16 })), /* @__PURE__ */ React.createElement("button", { onClick: onCancel, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(X, { size: 16 })));
+  }
+  try {
+    window.__stage1Booted = true;
+    ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(App, null));
+  } catch (e) {
+    document.getElementById("boot-error").textContent = "Render error: " + e.message;
+    console.error(e);
+  }
+})();
+
+</script>
+</body>
+</html>
