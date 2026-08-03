@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>X3LOG — OAuth Test</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0a0a0a;
+    color: #fafafa;
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 24px 16px;
+  }
+  h1 { font-size: 20px; }
+  button {
+    display: block;
+    width: 100%;
+    padding: 12px;
+    margin: 10px 0;
+    border-radius: 10px;
+    border: none;
+    font-size: 15px;
+    font-weight: 600;
+    background: #f97316;
+    color: #0a0a0a;
+  }
+  button:disabled { background: #262626; color: #737373; }
+  pre {
+    background: #171717;
+    border: 1px solid #292929;
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .status { font-size: 13px; color: #a3a3a3; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+  <h1>X3LOG — OAuth + Sheets Test</h1>
+  <div class="status" id="status">Not signed in.</div>
+
+  <button id="signin-btn">Sign in with Google</button>
+  <button id="read-btn" disabled>Read Routines!A1:C1</button>
+  <button id="write-btn" disabled>Append test row to Routines</button>
+
+  <pre id="output">Output will show here.</pre>
+
+  <script>
+    const CLIENT_ID = "242814993883-qubuj093i89cliq097qb89em016h5cfe.apps.googleusercontent.com";
+    const SPREADSHEET_ID = "19JalMbLch7TlUqduehJWctz0EabC1akRuoEgLpDG2xU";
+    const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
+
+    let accessToken = null;
+    let tokenClient = null;
+
+    const statusEl = document.getElementById("status");
+    const outputEl = document.getElementById("output");
+    const signinBtn = document.getElementById("signin-btn");
+    const readBtn = document.getElementById("read-btn");
+    const writeBtn = document.getElementById("write-btn");
+
+    function log(obj) {
+      outputEl.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+    }
+
+    window.onload = () => {
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: (resp) => {
+          if (resp.error) {
+            statusEl.textContent = "Sign-in failed.";
+            log(resp);
+            return;
+          }
+          accessToken = resp.access_token;
+          statusEl.textContent = "Signed in. Token acquired.";
+          readBtn.disabled = false;
+          writeBtn.disabled = false;
+        },
+      });
+    };
+
+    signinBtn.onclick = () => {
+      tokenClient.requestAccessToken();
+    };
+
+    readBtn.onclick = async () => {
+      statusEl.textContent = "Reading...";
+      try {
+        const res = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Routines!A1:C1`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        const data = await res.json();
+        statusEl.textContent = res.ok ? "Read succeeded." : `Read failed (${res.status}).`;
+        log(data);
+      } catch (e) {
+        statusEl.textContent = "Read error.";
+        log(String(e));
+      }
+    };
+
+    writeBtn.onclick = async () => {
+      statusEl.textContent = "Writing...";
+      try {
+        const res = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Routines!A:C:append?valueInputOption=RAW`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              values: [["test_id_123", "Test Routine (delete me)", "99"]],
+            }),
+          }
+        );
+        const data = await res.json();
+        statusEl.textContent = res.ok ? "Write succeeded — check the Sheet." : `Write failed (${res.status}).`;
+        log(data);
+      } catch (e) {
+        statusEl.textContent = "Write error.";
+        log(String(e));
+      }
+    };
+  </script>
+</body>
+</html>
