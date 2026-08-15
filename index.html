@@ -219,7 +219,34 @@
     const factor = grams / 100;
     return {
       protein: Math.round(food.proteinPer100g * factor * 10) / 10,
-      calories: Math.round(food.caloriesPer100g * factor)
+      calories: Math.round(food.caloriesPer100g * factor),
+      fat: Math.round((food.fatPer100g || 0) * factor * 10) / 10,
+      carbs: Math.round((food.carbsPer100g || 0) * factor * 10) / 10
+    };
+  }
+  function computeDayNutritionTotals(dayEntries, foods) {
+    let protein = 0, calories = 0, fat = 0, carbs = 0;
+    dayEntries.forEach((e) => {
+      if (e.foodId) {
+        const food = foods.find((f) => f.id === e.foodId);
+        if (!food) return;
+        const n = computeFoodNutrition(food, e.amountGrams);
+        protein += n.protein;
+        calories += n.calories;
+        fat += n.fat;
+        carbs += n.carbs;
+      } else if (e.adhocProtein !== null || e.adhocCalories !== null) {
+        protein += e.adhocProtein || 0;
+        calories += e.adhocCalories || 0;
+        fat += e.adhocFat || 0;
+        carbs += e.adhocCarbs || 0;
+      }
+    });
+    return {
+      protein: Math.round(protein * 10) / 10,
+      calories: Math.round(calories),
+      fat: Math.round(fat * 10) / 10,
+      carbs: Math.round(carbs * 10) / 10
     };
   }
   async function searchUSDA(query) {
@@ -231,11 +258,15 @@
       const nutrients = f.foodNutrients || [];
       const protein = nutrients.find((n) => n.nutrientId === 1003 || n.nutrientNumber === "203");
       const calories = nutrients.find((n) => n.nutrientId === 1008 || n.nutrientNumber === "208");
+      const fat = nutrients.find((n) => n.nutrientId === 1004 || n.nutrientNumber === "204");
+      const carbs = nutrients.find((n) => n.nutrientId === 1005 || n.nutrientNumber === "205");
       return {
         source: "USDA",
         name: f.description,
         proteinPer100g: protein ? protein.value : null,
-        caloriesPer100g: calories ? calories.value : null
+        caloriesPer100g: calories ? calories.value : null,
+        fatPer100g: fat ? fat.value : null,
+        carbsPer100g: carbs ? carbs.value : null
       };
     }).filter((f) => f.proteinPer100g !== null || f.caloriesPer100g !== null);
   }
@@ -248,7 +279,9 @@
       source: "Open Food Facts",
       name: p.brands ? `${p.product_name} (${p.brands})` : p.product_name,
       proteinPer100g: p.nutriments ? p.nutriments["proteins_100g"] : null,
-      caloriesPer100g: p.nutriments ? p.nutriments["energy-kcal_100g"] : null
+      caloriesPer100g: p.nutriments ? p.nutriments["energy-kcal_100g"] : null,
+      fatPer100g: p.nutriments ? p.nutriments["fat_100g"] : null,
+      carbsPer100g: p.nutriments ? p.nutriments["carbohydrates_100g"] : null
     })).filter((f) => f.name && (f.proteinPer100g !== null || f.caloriesPer100g !== null));
   }
   async function searchFoodDatabases(query) {
@@ -280,6 +313,9 @@
   }
   function fmtDateShort(ts) {
     return new Date(ts).toLocaleDateString(void 0, { month: "short", day: "numeric" });
+  }
+  function fmtDate(ts) {
+    return new Date(ts).toLocaleDateString(void 0, { month: "short", day: "numeric", year: "numeric" });
   }
   function fmtTime(ts) {
     return new Date(ts).toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" });
@@ -424,7 +460,7 @@
     const [expandedFoodCategoryKey, setExpandedFoodCategoryKey] = useState(null);
     const [editingFoodEntryId, setEditingFoodEntryId] = useState(null);
     const [showAddFood, setShowAddFood] = useState(false);
-    const [addFoodForm, setAddFoodForm] = useState({ name: "", category: FOOD_CATEGORIES[0], proteinPer100g: "", caloriesPer100g: "", defaultAmount: "", defaultUnit: "g", logToday: true });
+    const [addFoodForm, setAddFoodForm] = useState({ name: "", category: FOOD_CATEGORIES[0], proteinPer100g: "", caloriesPer100g: "", fatPer100g: "", carbsPer100g: "", defaultAmount: "", defaultUnit: "g", logToday: true });
     const [foodSearchQuery, setFoodSearchQuery] = useState("");
     const [foodSearchResults, setFoodSearchResults] = useState([]);
     const [foodSearchStatus, setFoodSearchStatus] = useState("idle");
@@ -516,8 +552,8 @@
         const entryRows = await api.getRange("Entries!A2:G10000");
         const overrideRows = await api.getRange("SessionOverrides!A2:D10000");
         const dailyRows = await api.getRange("DailyMetrics!A2:K10000");
-        const foodRows = await api.getRange("Foods!A2:I10000");
-        const nutritionEntryRows = await api.getRange("NutritionEntries!A2:I10000");
+        const foodRows = await api.getRange("Foods!A2:K10000");
+        const nutritionEntryRows = await api.getRange("NutritionEntries!A2:K10000");
         const loadedRoutines = routineRows.filter((r) => r[0]).map((r) => ({ id: r[0], name: r[1] || "", sortOrder: parseInt(r[2], 10) || 0, exercises: [] })).sort((a, b) => a.sortOrder - b.sortOrder);
         const byRoutine = {};
         exerciseRows.filter((r) => r[0]).forEach((r) => {
@@ -565,10 +601,12 @@
           category: r[2] || FOOD_CATEGORIES[FOOD_CATEGORIES.length - 1],
           proteinPer100g: parseFloat(r[3]) || 0,
           caloriesPer100g: parseFloat(r[4]) || 0,
-          defaultGrams: parseFloat(r[5]) || 100,
-          defaultUnit: r[6] || "g",
-          sortOrder: parseInt(r[7], 10) || 0,
-          archived: r[8] === "TRUE" || r[8] === "true" || r[8] === true
+          fatPer100g: parseFloat(r[5]) || 0,
+          carbsPer100g: parseFloat(r[6]) || 0,
+          defaultGrams: parseFloat(r[7]) || 100,
+          defaultUnit: r[8] || "g",
+          sortOrder: parseInt(r[9], 10) || 0,
+          archived: r[10] === "TRUE" || r[10] === "true" || r[10] === true
         }));
         const loadedNutritionEntries = nutritionEntryRows.filter((r) => r[0]).map((r) => ({
           id: r[0],
@@ -579,7 +617,9 @@
           timestamp: parseInt(r[5], 10),
           adhocName: r[6] || "",
           adhocProtein: r[7] !== "" && r[7] !== void 0 ? parseFloat(r[7]) : null,
-          adhocCalories: r[8] !== "" && r[8] !== void 0 ? parseFloat(r[8]) : null
+          adhocCalories: r[8] !== "" && r[8] !== void 0 ? parseFloat(r[8]) : null,
+          adhocFat: r[9] !== "" && r[9] !== void 0 ? parseFloat(r[9]) : null,
+          adhocCarbs: r[10] !== "" && r[10] !== void 0 ? parseFloat(r[10]) : null
         }));
         setDailyMetrics(loadedDaily);
         setFoods(loadedFoods);
@@ -847,8 +887,8 @@
       foodsSaveTimeout.current = setTimeout(async () => {
         setSaveState("saving");
         try {
-          const rows = nextFoods.map((f, i) => [f.id, f.name, f.category, f.proteinPer100g, f.caloriesPer100g, f.defaultGrams, f.defaultUnit, i, f.archived ? "TRUE" : "FALSE"]);
-          await api.clearRange("Foods!A2:I10000");
+          const rows = nextFoods.map((f, i) => [f.id, f.name, f.category, f.proteinPer100g, f.caloriesPer100g, f.fatPer100g || 0, f.carbsPer100g || 0, f.defaultGrams, f.defaultUnit, i, f.archived ? "TRUE" : "FALSE"]);
+          await api.clearRange("Foods!A2:K10000");
           if (rows.length) await api.updateRange("Foods!A2", rows);
           setSaveState("saved");
           setTimeout(() => setSaveState("idle"), 1200);
@@ -872,6 +912,8 @@
         category: foodData.category,
         proteinPer100g: foodData.proteinPer100g,
         caloriesPer100g: foodData.caloriesPer100g,
+        fatPer100g: foodData.fatPer100g || 0,
+        carbsPer100g: foodData.carbsPer100g || 0,
         defaultGrams: foodData.defaultGrams,
         defaultUnit: foodData.defaultUnit,
         archived: false
@@ -892,8 +934,8 @@
         setSaveState("saving");
         try {
           const nz2 = (v) => v === null || v === void 0 ? "" : v;
-          const rows = nextEntries.map((e) => [e.id, e.date, e.foodId || "", e.amountGrams || "", e.note || "", e.timestamp, e.adhocName || "", nz2(e.adhocProtein), nz2(e.adhocCalories)]);
-          await api.clearRange("NutritionEntries!A2:I10000");
+          const rows = nextEntries.map((e) => [e.id, e.date, e.foodId || "", e.amountGrams || "", e.note || "", e.timestamp, e.adhocName || "", nz2(e.adhocProtein), nz2(e.adhocCalories), nz2(e.adhocFat), nz2(e.adhocCarbs)]);
+          await api.clearRange("NutritionEntries!A2:K10000");
           if (rows.length) await api.updateRange("NutritionEntries!A2", rows);
           setSaveState("saved");
           setTimeout(() => setSaveState("idle"), 1200);
@@ -905,22 +947,10 @@
     }
     function syncDailyTotalsForDate(date, entriesForCalc) {
       const dayEntries = entriesForCalc.filter((e) => e.date === date);
-      let totalProtein = 0, totalCalories = 0;
-      dayEntries.forEach((e) => {
-        if (e.foodId) {
-          const food = foods.find((f) => f.id === e.foodId);
-          if (!food) return;
-          const n = computeFoodNutrition(food, e.amountGrams);
-          totalProtein += n.protein;
-          totalCalories += n.calories;
-        } else if (e.adhocProtein !== null || e.adhocCalories !== null) {
-          totalProtein += e.adhocProtein || 0;
-          totalCalories += e.adhocCalories || 0;
-        }
-      });
+      const totals = computeDayNutritionTotals(dayEntries, foods);
       saveDailyEntry(date, {
-        protein: dayEntries.length ? Math.round(totalProtein * 10) / 10 : null,
-        calories: dayEntries.length ? Math.round(totalCalories) : null
+        protein: dayEntries.length ? totals.protein : null,
+        calories: dayEntries.length ? totals.calories : null
       });
     }
     async function logFood(food, date) {
@@ -930,7 +960,7 @@
       syncDailyTotalsForDate(date, nextEntries);
       setSaveState("saving");
       try {
-        await api.appendRow("NutritionEntries!A:I", [entry.id, entry.date, entry.foodId, entry.amountGrams, entry.note, entry.timestamp, "", "", ""]);
+        await api.appendRow("NutritionEntries!A:K", [entry.id, entry.date, entry.foodId, entry.amountGrams, entry.note, entry.timestamp, "", "", "", "", ""]);
         setSaveState("saved");
         setTimeout(() => setSaveState("idle"), 1200);
       } catch (e) {
@@ -938,14 +968,14 @@
         setErrorMsg(String(e));
       }
     }
-    async function logAdHocFood(date, name, protein, calories) {
-      const entry = { id: genId("nutri"), date, foodId: "", amountGrams: null, note: "", timestamp: Date.now(), adhocName: name, adhocProtein: protein, adhocCalories: calories };
+    async function logAdHocFood(date, name, protein, calories, fat, carbs) {
+      const entry = { id: genId("nutri"), date, foodId: "", amountGrams: null, note: "", timestamp: Date.now(), adhocName: name, adhocProtein: protein, adhocCalories: calories, adhocFat: fat, adhocCarbs: carbs };
       const nextEntries = [...nutritionEntries, entry];
       setNutritionEntries(nextEntries);
       syncDailyTotalsForDate(date, nextEntries);
       setSaveState("saving");
       try {
-        await api.appendRow("NutritionEntries!A:I", [entry.id, entry.date, "", "", "", entry.timestamp, entry.adhocName, entry.adhocProtein, entry.adhocCalories]);
+        await api.appendRow("NutritionEntries!A:K", [entry.id, entry.date, "", "", "", entry.timestamp, entry.adhocName, entry.adhocProtein, entry.adhocCalories, entry.adhocFat, entry.adhocCarbs]);
         setSaveState("saved");
         setTimeout(() => setSaveState("idle"), 1200);
       } catch (e) {
@@ -1107,8 +1137,7 @@ Start: ${start}  Finish: ${finish}`;
       }
       document.body.removeChild(ta);
     }
-    function copySummary(key, routine, sessionEntries, startOverride, finishOverride) {
-      const text = buildWorkoutSummary(routine, sessionEntries, startOverride, finishOverride);
+    function copyTextToClipboard(key, text) {
       if (!text) return;
       const flash = () => {
         setCopiedFlash(key);
@@ -1123,6 +1152,31 @@ Start: ${start}  Finish: ${finish}`;
         fallbackCopy(text);
         flash();
       }
+    }
+    function copySummary(key, routine, sessionEntries, startOverride, finishOverride) {
+      copyTextToClipboard(key, buildWorkoutSummary(routine, sessionEntries, startOverride, finishOverride));
+    }
+    function buildNutritionSummary(date, dayEntries) {
+      if (!dayEntries.length) return "";
+      const lines = dayEntries.map((e) => {
+        if (e.foodId) {
+          const food = foods.find((f) => f.id === e.foodId);
+          if (!food) return null;
+          const n = computeFoodNutrition(food, e.amountGrams);
+          const amt = food.defaultUnit === "oz" ? `${Math.round(e.amountGrams / OZ_TO_G * 10) / 10}oz` : `${Math.round(e.amountGrams)}g`;
+          return `${food.name}: ${amt}, ${n.protein}g protein, ${n.calories}kcal, ${n.fat}g fat, ${n.carbs}g carbs`;
+        }
+        return `${e.adhocName}: ${e.adhocProtein || 0}g protein, ${e.adhocCalories || 0}kcal, ${e.adhocFat || 0}g fat, ${e.adhocCarbs || 0}g carbs`;
+      }).filter(Boolean);
+      const totals = computeDayNutritionTotals(dayEntries, foods);
+      return `Nutrition \u2014 ${fmtDate(dateToTs(date))}
+
+${lines.join("\n")}
+
+Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, ${totals.carbs}g carbs`;
+    }
+    function copyNutritionSummary(key, date, dayEntries) {
+      copyTextToClipboard(key, buildNutritionSummary(date, dayEntries));
     }
     if (checkingSilentAuth) return /* @__PURE__ */ React.createElement("div", { style: { padding: 24, color: "#a3a3a3" } }, "Checking sign-in status\u2026");
     if (!accessToken) {
@@ -1209,7 +1263,10 @@ Start: ${start}  Finish: ${finish}`;
         foodSearchResults,
         foodSearchStatus,
         foodSearchError,
-        runFoodSearch
+        runFoodSearch,
+        buildNutritionSummary,
+        copyNutritionSummary,
+        copiedFlash
       }
     ), view === "trends" && /* @__PURE__ */ React.createElement(TrendsView, { routines, allExercises, trendExerciseIds, setTrendExerciseIds, getExerciseEntries }), view === "manage" && /* @__PURE__ */ React.createElement(
       ManageView,
@@ -1588,24 +1645,15 @@ Start: ${start}  Finish: ${finish}`;
       foodSearchResults,
       foodSearchStatus,
       foodSearchError,
-      runFoodSearch
+      runFoodSearch,
+      buildNutritionSummary,
+      copyNutritionSummary,
+      copiedFlash
     } = props;
     const isToday = nutritionViewDate === todayStr();
     const liveFoods = foods.filter((f) => !f.archived);
     const todaysEntries = nutritionEntries.filter((e) => e.date === nutritionViewDate);
-    let totalProtein = 0, totalCalories = 0;
-    todaysEntries.forEach((e) => {
-      if (e.foodId) {
-        const food = foods.find((f) => f.id === e.foodId);
-        if (!food) return;
-        const n = computeFoodNutrition(food, e.amountGrams);
-        totalProtein += n.protein;
-        totalCalories += n.calories;
-      } else if (e.adhocProtein !== null || e.adhocCalories !== null) {
-        totalProtein += e.adhocProtein || 0;
-        totalCalories += e.adhocCalories || 0;
-      }
-    });
+    const totals = computeDayNutritionTotals(todaysEntries, foods);
     const adhocEntries = todaysEntries.filter((e) => !e.foodId);
     const byCategory = {};
     FOOD_CATEGORIES.forEach((c) => {
@@ -1614,7 +1662,7 @@ Start: ${start}  Finish: ${finish}`;
     liveFoods.forEach((f) => {
       (byCategory[f.category] || (byCategory[f.category] = [])).push(f);
     });
-    return /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-xl px-2 py-1.5" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setNutritionViewDate((d) => addDays(d, -1)), className: "p-1.5 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 18 })), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-semibold text-neutral-50" }, fmtDayLabel(nutritionViewDate)), /* @__PURE__ */ React.createElement("button", { onClick: () => setNutritionViewDate((d) => d === todayStr() ? d : addDays(d, 1)), disabled: isToday, className: `p-1.5 ${isToday ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 18 }))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement(StatBox, { label: "Protein", value: `${Math.round(totalProtein * 10) / 10}g` }), /* @__PURE__ */ React.createElement(StatBox, { label: "Calories", value: `${Math.round(totalCalories)}kcal`, accent: true })), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddFood((prev) => !prev), className: "w-full py-2.5 rounded-lg bg-neutral-800 text-neutral-100 text-sm font-semibold flex items-center justify-center gap-1.5" }, /* @__PURE__ */ React.createElement(Plus, { size: 15 }), " Add food"), showAddFood && /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-xl px-2 py-1.5" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setNutritionViewDate((d) => addDays(d, -1)), className: "p-1.5 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 18 })), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-semibold text-neutral-50" }, fmtDayLabel(nutritionViewDate)), /* @__PURE__ */ React.createElement("button", { onClick: () => setNutritionViewDate((d) => d === todayStr() ? d : addDays(d, 1)), disabled: isToday, className: `p-1.5 ${isToday ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 18 }))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement(StatBox, { label: "Protein", value: `${totals.protein}g` }), /* @__PURE__ */ React.createElement(StatBox, { label: "Calories", value: `${totals.calories}kcal`, accent: true }), /* @__PURE__ */ React.createElement(StatBox, { label: "Fat", value: `${totals.fat}g` }), /* @__PURE__ */ React.createElement(StatBox, { label: "Carbs", value: `${totals.carbs}g` })), todaysEntries.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Nutrition summary"), /* @__PURE__ */ React.createElement("button", { onClick: () => copyNutritionSummary(`nutri-${nutritionViewDate}`, nutritionViewDate, todaysEntries), className: "text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-500 text-neutral-950" }, copiedFlash === `nutri-${nutritionViewDate}` ? "Copied!" : "Copy")), /* @__PURE__ */ React.createElement("pre", { className: "text-xs text-neutral-300 whitespace-pre-wrap font-mono leading-relaxed" }, buildNutritionSummary(nutritionViewDate, todaysEntries))), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddFood((prev) => !prev), className: "w-full py-2.5 rounded-lg bg-neutral-800 text-neutral-100 text-sm font-semibold flex items-center justify-center gap-1.5" }, /* @__PURE__ */ React.createElement(Plus, { size: 15 }), " Add food"), showAddFood && /* @__PURE__ */ React.createElement(
       AddFoodForm,
       {
         addFoodForm,
@@ -1699,12 +1747,14 @@ Start: ${start}  Finish: ${finish}`;
     const [saveMode, setSaveMode] = useState("library");
     function applySearchResult(result) {
       setAddFoodForm((prev) => {
-        var _a, _b;
+        var _a, _b, _c, _d;
         return {
           ...prev,
           name: result.name,
           proteinPer100g: String((_a = result.proteinPer100g) != null ? _a : ""),
-          caloriesPer100g: String((_b = result.caloriesPer100g) != null ? _b : "")
+          caloriesPer100g: String((_b = result.caloriesPer100g) != null ? _b : ""),
+          fatPer100g: String((_c = result.fatPer100g) != null ? _c : ""),
+          carbsPer100g: String((_d = result.carbsPer100g) != null ? _d : "")
         };
       });
     }
@@ -1712,40 +1762,48 @@ Start: ${start}  Finish: ${finish}`;
       const name = addFoodForm.name.trim();
       const protein = parseFloat(addFoodForm.proteinPer100g);
       const calories = parseFloat(addFoodForm.caloriesPer100g);
+      const fat = parseFloat(addFoodForm.fatPer100g) || 0;
+      const carbs = parseFloat(addFoodForm.carbsPer100g) || 0;
       const defaultAmountRaw = parseFloat(addFoodForm.defaultAmount);
       if (!name || Number.isNaN(protein) || Number.isNaN(calories) || !defaultAmountRaw) return;
       const grams = addFoodForm.defaultUnit === "oz" ? defaultAmountRaw * OZ_TO_G : defaultAmountRaw;
       if (saveMode === "onceOnly") {
         const totalProtein = Math.round(protein * grams / 100 * 10) / 10;
         const totalCalories = Math.round(calories * grams / 100);
-        logAdHocFood(nutritionViewDate, name, totalProtein, totalCalories);
+        const totalFat = Math.round(fat * grams / 100 * 10) / 10;
+        const totalCarbs = Math.round(carbs * grams / 100 * 10) / 10;
+        logAdHocFood(nutritionViewDate, name, totalProtein, totalCalories, totalFat, totalCarbs);
       } else {
         const newFood = addFood({
           name,
           category: addFoodForm.category,
           proteinPer100g: protein,
           caloriesPer100g: calories,
+          fatPer100g: fat,
+          carbsPer100g: carbs,
           defaultGrams: grams,
           defaultUnit: addFoodForm.defaultUnit
         });
         if (addFoodForm.logToday) logFood(newFood, nutritionViewDate);
       }
-      setAddFoodForm({ name: "", category: addFoodForm.category, proteinPer100g: "", caloriesPer100g: "", defaultAmount: "", defaultUnit: "g", logToday: true });
+      setAddFoodForm({ name: "", category: addFoodForm.category, proteinPer100g: "", caloriesPer100g: "", fatPer100g: "", carbsPer100g: "", defaultAmount: "", defaultUnit: "g", logToday: true });
       setShowAddFood(false);
     }
     return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setSaveMode("library"), className: `flex-1 py-2 rounded-lg text-xs font-semibold ${saveMode === "library" ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 border border-neutral-800 text-neutral-400"}` }, "Save to my food list"), /* @__PURE__ */ React.createElement("button", { onClick: () => setSaveMode("onceOnly"), className: `flex-1 py-2 rounded-lg text-xs font-semibold ${saveMode === "onceOnly" ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 border border-neutral-800 text-neutral-400"}` }, "Just log this once")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Look up a food (USDA + Open Food Facts)"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-1" }, /* @__PURE__ */ React.createElement("input", { type: "text", value: foodSearchQuery, onChange: (e) => setFoodSearchQuery(e.target.value), placeholder: "e.g. chicken breast", className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-100" }), /* @__PURE__ */ React.createElement("button", { onClick: runFoodSearch, disabled: foodSearchStatus === "loading", className: "w-10 h-10 shrink-0 flex items-center justify-center rounded-lg bg-neutral-800 text-neutral-200" }, /* @__PURE__ */ React.createElement(Search, { size: 16 }))), foodSearchStatus === "loading" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500 mt-2" }, "Searching\u2026"), foodSearchError && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-red-400 mt-2 whitespace-pre-wrap" }, foodSearchError), foodSearchStatus === "done" && foodSearchResults.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500 mt-2" }, "No results."), foodSearchResults.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-2 space-y-1.5 max-h-48 overflow-y-auto" }, foodSearchResults.map((r, i) => {
-      var _a, _b;
-      return /* @__PURE__ */ React.createElement("button", { key: i, onClick: () => applySearchResult(r), className: "w-full text-left bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm text-neutral-100 truncate" }, r.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500" }, r.source, " \u2014 ", (_a = r.proteinPer100g) != null ? _a : "?", "g protein / ", (_b = r.caloriesPer100g) != null ? _b : "?", "kcal per 100g"));
-    }))), /* @__PURE__ */ React.createElement("div", { className: "border-t border-neutral-800 pt-3 space-y-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Name"), /* @__PURE__ */ React.createElement("input", { type: "text", value: addFoodForm.name, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, name: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm text-neutral-100" })), saveMode === "library" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Category"), /* @__PURE__ */ React.createElement("select", { value: addFoodForm.category, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, category: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm text-neutral-100" }, FOOD_CATEGORIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Protein / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.proteinPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, proteinPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Calories / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.caloriesPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, caloriesPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, saveMode === "onceOnly" ? "Amount you're eating" : "Your usual amount"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-1" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.defaultAmount, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, defaultAmount: e.target.value })), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("div", { className: "flex shrink-0 rounded-lg overflow-hidden border border-neutral-800" }, ["g", "oz"].map((u) => /* @__PURE__ */ React.createElement("button", { key: u, onClick: () => setAddFoodForm((prev) => ({ ...prev, defaultUnit: u })), className: `px-3 py-2 text-xs font-semibold ${addFoodForm.defaultUnit === u ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 text-neutral-400"}` }, u))))), saveMode === "library" && /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-2 text-sm text-neutral-300" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: addFoodForm.logToday, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, logToday: e.target.checked })) }), "Log this now for ", fmtDayLabel(nutritionViewDate)), saveMode === "onceOnly" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500" }, "Logs immediately for ", fmtDayLabel(nutritionViewDate), " \u2014 won't be saved to your food list."), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: handleSave, className: "flex-1 py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, saveMode === "onceOnly" ? "Log it" : "Save food"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddFood(false), className: "px-4 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Cancel"))));
+      var _a, _b, _c, _d;
+      return /* @__PURE__ */ React.createElement("button", { key: i, onClick: () => applySearchResult(r), className: "w-full text-left bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm text-neutral-100 truncate" }, r.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500" }, r.source, " \u2014 ", (_a = r.proteinPer100g) != null ? _a : "?", "g protein / ", (_b = r.caloriesPer100g) != null ? _b : "?", "kcal / ", (_c = r.fatPer100g) != null ? _c : "?", "g fat / ", (_d = r.carbsPer100g) != null ? _d : "?", "g carbs per 100g"));
+    }))), /* @__PURE__ */ React.createElement("div", { className: "border-t border-neutral-800 pt-3 space-y-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Name"), /* @__PURE__ */ React.createElement("input", { type: "text", value: addFoodForm.name, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, name: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm text-neutral-100" })), saveMode === "library" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Category"), /* @__PURE__ */ React.createElement("select", { value: addFoodForm.category, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, category: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm text-neutral-100" }, FOOD_CATEGORIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Protein / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.proteinPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, proteinPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Calories / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.caloriesPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, caloriesPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Fat / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.fatPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, fatPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Carbs / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.carbsPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, carbsPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, saveMode === "onceOnly" ? "Amount you're eating" : "Your usual amount"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-1" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.defaultAmount, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, defaultAmount: e.target.value })), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("div", { className: "flex shrink-0 rounded-lg overflow-hidden border border-neutral-800" }, ["g", "oz"].map((u) => /* @__PURE__ */ React.createElement("button", { key: u, onClick: () => setAddFoodForm((prev) => ({ ...prev, defaultUnit: u })), className: `px-3 py-2 text-xs font-semibold ${addFoodForm.defaultUnit === u ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 text-neutral-400"}` }, u))))), saveMode === "library" && /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-2 text-sm text-neutral-300" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: addFoodForm.logToday, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, logToday: e.target.checked })) }), "Log this now for ", fmtDayLabel(nutritionViewDate)), saveMode === "onceOnly" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500" }, "Logs immediately for ", fmtDayLabel(nutritionViewDate), " \u2014 won't be saved to your food list."), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: handleSave, className: "flex-1 py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, saveMode === "onceOnly" ? "Log it" : "Save food"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddFood(false), className: "px-4 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Cancel"))));
   }
   function ManageFoodRow({ food, isRenaming, setRenaming, editFood, isConfirmingDelete, setConfirmingDelete, toggleArchiveFood }) {
     const [name, setName] = useState(food.name);
     const [protein, setProtein] = useState(String(food.proteinPer100g));
     const [calories, setCalories] = useState(String(food.caloriesPer100g));
+    const [fat, setFat] = useState(String(food.fatPer100g || 0));
+    const [carbs, setCarbs] = useState(String(food.carbsPer100g || 0));
     const [amount, setAmount] = useState(String(food.defaultUnit === "oz" ? Math.round(food.defaultGrams / OZ_TO_G * 10) / 10 : food.defaultGrams));
     const [unit, setUnit] = useState(food.defaultUnit || "g");
     if (isRenaming) {
-      return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-950 border border-orange-500 rounded-lg p-2.5 space-y-2", style: { borderWidth: 1 } }, /* @__PURE__ */ React.createElement("input", { type: "text", value: name, onChange: (e) => setName(e.target.value), className: "w-full bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm text-neutral-100" }), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: protein, onChange: (e) => setProtein(e.target.value), placeholder: "Protein/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: calories, onChange: (e) => setCalories(e.target.value), placeholder: "Cal/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: amount, onChange: (e) => setAmount(e.target.value), placeholder: "Usual amount", className: "flex-1 bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("div", { className: "flex shrink-0 rounded-md overflow-hidden border border-neutral-800" }, ["g", "oz"].map((u) => /* @__PURE__ */ React.createElement("button", { key: u, onClick: () => setUnit(u), className: `px-2 py-1 text-xs font-semibold ${unit === u ? "bg-orange-500 text-neutral-950" : "bg-neutral-900 text-neutral-400"}` }, u)))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement(
+      return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-950 border border-orange-500 rounded-lg p-2.5 space-y-2", style: { borderWidth: 1 } }, /* @__PURE__ */ React.createElement("input", { type: "text", value: name, onChange: (e) => setName(e.target.value), className: "w-full bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm text-neutral-100" }), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: protein, onChange: (e) => setProtein(e.target.value), placeholder: "Protein/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: calories, onChange: (e) => setCalories(e.target.value), placeholder: "Cal/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: fat, onChange: (e) => setFat(e.target.value), placeholder: "Fat/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: carbs, onChange: (e) => setCarbs(e.target.value), placeholder: "Carbs/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: amount, onChange: (e) => setAmount(e.target.value), placeholder: "Usual amount", className: "flex-1 bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("div", { className: "flex shrink-0 rounded-md overflow-hidden border border-neutral-800" }, ["g", "oz"].map((u) => /* @__PURE__ */ React.createElement("button", { key: u, onClick: () => setUnit(u), className: `px-2 py-1 text-xs font-semibold ${unit === u ? "bg-orange-500 text-neutral-950" : "bg-neutral-900 text-neutral-400"}` }, u)))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement(
         "button",
         {
           onClick: () => {
@@ -1754,6 +1812,8 @@ Start: ${start}  Finish: ${finish}`;
               name: name.trim() || food.name,
               proteinPer100g: parseFloat(protein) || 0,
               caloriesPer100g: parseFloat(calories) || 0,
+              fatPer100g: parseFloat(fat) || 0,
+              carbsPer100g: parseFloat(carbs) || 0,
               defaultGrams: unit === "oz" ? amt * OZ_TO_G : amt,
               defaultUnit: unit
             });
@@ -1765,7 +1825,7 @@ Start: ${start}  Finish: ${finish}`;
         " Save"
       ), /* @__PURE__ */ React.createElement("button", { onClick: () => setRenaming(false), className: "flex-1 py-1.5 rounded-md bg-neutral-800 text-neutral-300 text-sm flex items-center justify-center gap-1" }, /* @__PURE__ */ React.createElement(X, { size: 14 }), " Cancel")));
     }
-    return /* @__PURE__ */ React.createElement("div", { className: `flex items-center justify-between rounded-lg px-2 py-2 border border-neutral-800 ${food.archived ? "bg-neutral-950/50" : "bg-neutral-950"}` }, /* @__PURE__ */ React.createElement("span", { className: `text-sm truncate ${food.archived ? "text-neutral-600 line-through" : "text-neutral-200"}` }, food.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-neutral-500 font-mono" }, food.proteinPer100g, "g/", food.caloriesPer100g, "kcal"), /* @__PURE__ */ React.createElement("button", { onClick: () => setRenaming(true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), food.archived ? /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveFood(food.id, false), className: "text-emerald-400 p-1.5 flex items-center gap-1 text-xs font-medium" }, /* @__PURE__ */ React.createElement(Eye, { size: 13 }), " Show") : /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveFood(food.id, true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(EyeOff, { size: 13 }))));
+    return /* @__PURE__ */ React.createElement("div", { className: `flex items-center justify-between rounded-lg px-2 py-2 border border-neutral-800 ${food.archived ? "bg-neutral-950/50" : "bg-neutral-950"}` }, /* @__PURE__ */ React.createElement("span", { className: `text-sm truncate ${food.archived ? "text-neutral-600 line-through" : "text-neutral-200"}` }, food.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-neutral-500 font-mono" }, food.proteinPer100g, "g/", food.caloriesPer100g, "kcal/", food.fatPer100g || 0, "g fat/", food.carbsPer100g || 0, "g carb"), /* @__PURE__ */ React.createElement("button", { onClick: () => setRenaming(true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), food.archived ? /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveFood(food.id, false), className: "text-emerald-400 p-1.5 flex items-center gap-1 text-xs font-medium" }, /* @__PURE__ */ React.createElement(Eye, { size: 13 }), " Show") : /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveFood(food.id, true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(EyeOff, { size: 13 }))));
   }
   function ManageView(props) {
     const {
