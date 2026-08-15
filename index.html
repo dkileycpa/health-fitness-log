@@ -421,7 +421,7 @@
     const [foods, setFoods] = useState([]);
     const [nutritionEntries, setNutritionEntries] = useState([]);
     const [nutritionViewDate, setNutritionViewDate] = useState(todayStr());
-    const [expandedFoodCategory, setExpandedFoodCategory] = useState({});
+    const [expandedFoodCategoryKey, setExpandedFoodCategoryKey] = useState(null);
     const [editingFoodEntryId, setEditingFoodEntryId] = useState(null);
     const [showAddFood, setShowAddFood] = useState(false);
     const [addFoodForm, setAddFoodForm] = useState({ name: "", category: FOOD_CATEGORIES[0], proteinPer100g: "", caloriesPer100g: "", defaultAmount: "", defaultUnit: "g", logToday: true });
@@ -1191,8 +1191,8 @@ Start: ${start}  Finish: ${finish}`;
         nutritionEntries,
         nutritionViewDate,
         setNutritionViewDate,
-        expandedFoodCategory,
-        setExpandedFoodCategory,
+        expandedFoodCategoryKey,
+        setExpandedFoodCategoryKey,
         editingFoodEntryId,
         setEditingFoodEntryId,
         logFood,
@@ -1570,8 +1570,8 @@ Start: ${start}  Finish: ${finish}`;
       nutritionEntries,
       nutritionViewDate,
       setNutritionViewDate,
-      expandedFoodCategory,
-      setExpandedFoodCategory,
+      expandedFoodCategoryKey,
+      setExpandedFoodCategoryKey,
       editingFoodEntryId,
       setEditingFoodEntryId,
       logFood,
@@ -1634,8 +1634,8 @@ Start: ${start}  Finish: ${finish}`;
     ), adhocEntries.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-wide text-neutral-400 mb-2" }, "One-off entries today"), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, adhocEntries.map((e) => /* @__PURE__ */ React.createElement("div", { key: e.id, className: "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-200 flex-1 truncate" }, e.adhocName), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-500 font-mono shrink-0" }, e.adhocProtein, "g / ", e.adhocCalories, "kcal"), /* @__PURE__ */ React.createElement("button", { onClick: () => deleteFoodEntry(e.id), className: "text-neutral-500 p-1 shrink-0" }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 })))))), FOOD_CATEGORIES.map((category) => {
       const categoryFoods = byCategory[category] || [];
       if (categoryFoods.length === 0) return null;
-      const isExpanded = expandedFoodCategory[category] !== false;
-      return /* @__PURE__ */ React.createElement("div", { key: category, className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setExpandedFoodCategory((prev) => ({ ...prev, [category]: !isExpanded })) }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, category), isExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-500" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-500" })), isExpanded && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-3 space-y-1.5" }, categoryFoods.map((food) => {
+      const isExpanded = expandedFoodCategoryKey === category;
+      return /* @__PURE__ */ React.createElement("div", { key: category, className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setExpandedFoodCategoryKey((prev) => prev === category ? null : category) }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, category), isExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-500" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-500" })), isExpanded && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-3 space-y-1.5" }, categoryFoods.map((food) => {
         const entry = todaysEntries.find((e) => e.foodId === food.id);
         return /* @__PURE__ */ React.createElement(
           FoodRow,
