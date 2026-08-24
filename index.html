@@ -189,7 +189,7 @@
   const TOKEN_KEY = "x3log_access_token_v3";
   const TOKEN_EXPIRY_KEY = "x3log_token_expiry_v3";
   const USDA_API_KEY = "DEMO_KEY";
-  const FOOD_CATEGORIES = ["Dairy", "Meats", "Grains", "Fats and Nuts", "Fruit", "Vegetables", "Snacks", "Restaurant", "Miscellaneous"];
+  const UNCATEGORIZED_ID = "__uncategorized__";
   const OZ_TO_G = 28.3495;
   const BANDS = [
     { id: "none", label: "None", short: "\u2014", swatch: "transparent", dot: "#9CA3AF" },
@@ -201,6 +201,13 @@
     { id: "blgp", label: "Black + Light Grey", short: "B+LG", swatch: "linear-gradient(135deg, #232529 50%, #B9BCC2 50%)", dot: "#232529" },
     { id: "bgp", label: "Black + Dark Grey", short: "B+DG", swatch: "linear-gradient(135deg, #232529 50%, #5C6068 50%)", dot: "#232529" }
   ];
+  function computeSessionId(dateStr, routine) {
+    if (!routine || !routine.name) return `session_${dateStr.replace(/-/g, "")}`;
+    const words = routine.name.trim().split(/\s+/);
+    const first = words[0].toLowerCase();
+    const last = words[words.length - 1];
+    return `session_${dateStr.replace(/-/g, "")}_${first}_${last}`;
+  }
   function bandById(id) {
     return BANDS.find((b) => b.id === id) || BANDS[0];
   }
@@ -456,18 +463,21 @@
     const [manageNewExName, setManageNewExName] = useState({});
     const [manageNewExUnit, setManageNewExUnit] = useState({});
     const [foods, setFoods] = useState([]);
+    const [categories, setCategories] = useState([]);
     const [nutritionEntries, setNutritionEntries] = useState([]);
     const [nutritionViewDate, setNutritionViewDate] = useState(todayStr());
     const [expandedFoodCategoryKey, setExpandedFoodCategoryKey] = useState(null);
     const [editingFoodEntryId, setEditingFoodEntryId] = useState(null);
     const [showAddFood, setShowAddFood] = useState(false);
-    const [addFoodForm, setAddFoodForm] = useState({ name: "", category: FOOD_CATEGORIES[0], proteinPer100g: "", caloriesPer100g: "", fatPer100g: "", carbsPer100g: "", defaultAmount: "", defaultUnit: "g", logToday: true });
+    const [addFoodForm, setAddFoodForm] = useState({ name: "", category: "", proteinPer100g: "", caloriesPer100g: "", fatPer100g: "", carbsPer100g: "", defaultAmount: "", defaultUnit: "g", logToday: true });
     const [foodSearchQuery, setFoodSearchQuery] = useState("");
     const [foodSearchResults, setFoodSearchResults] = useState([]);
     const [foodSearchStatus, setFoodSearchStatus] = useState("idle");
     const [foodSearchError, setFoodSearchError] = useState(null);
     const [manageFoodRenaming, setManageFoodRenaming] = useState(null);
     const [manageFoodConfirmDelete, setManageFoodConfirmDelete] = useState(null);
+    const [manageCategoryRenaming, setManageCategoryRenaming] = useState(null);
+    const [manageNewCategoryName, setManageNewCategoryName] = useState("");
     const [expandedFoodCategoryManage, setExpandedFoodCategoryManage] = useState({});
     const api = useSheetsApi(accessToken);
     function cacheToken(token, expiresInSeconds) {
@@ -550,10 +560,11 @@
       try {
         const routineRows = await api.getRange("Routines!A2:C10000");
         const exerciseRows = await api.getRange("Exercises!A2:F10000");
-        const entryRows = await api.getRange("Entries!A2:G10000");
+        const entryRows = await api.getRange("Entries!A2:H10000");
         const overrideRows = await api.getRange("SessionOverrides!A2:D10000");
         const dailyRows = await api.getRange("DailyMetrics!A2:K10000");
         const foodRows = await api.getRange("Foods!A2:K10000");
+        const categoryRows = await api.getRange("FoodCategories!A2:D10000");
         const nutritionEntryRows = await api.getRange("NutritionEntries!A2:K10000");
         const loadedRoutines = routineRows.filter((r) => r[0]).map((r) => ({ id: r[0], name: r[1] || "", sortOrder: parseInt(r[2], 10) || 0, exercises: [] })).sort((a, b) => a.sortOrder - b.sortOrder);
         const byRoutine = {};
@@ -573,7 +584,8 @@
           band: r[3],
           tut: parseFloat(r[4]),
           note: r[5] || "",
-          timestamp: parseInt(r[6], 10)
+          timestamp: parseInt(r[6], 10),
+          sessionId: r[7] || ""
         }));
         const loadedOverrides = {};
         overrideRows.filter((r) => r[0]).forEach((r) => {
@@ -599,7 +611,7 @@
         const loadedFoods = foodRows.filter((r) => r[0]).map((r) => ({
           id: r[0],
           name: r[1] || "",
-          category: r[2] || FOOD_CATEGORIES[FOOD_CATEGORIES.length - 1],
+          category: r[2] || UNCATEGORIZED_ID,
           proteinPer100g: parseFloat(r[3]) || 0,
           caloriesPer100g: parseFloat(r[4]) || 0,
           fatPer100g: parseFloat(r[5]) || 0,
@@ -622,8 +634,15 @@
           adhocFat: r[9] !== "" && r[9] !== void 0 ? parseFloat(r[9]) : null,
           adhocCarbs: r[10] !== "" && r[10] !== void 0 ? parseFloat(r[10]) : null
         }));
+        const loadedCategories = categoryRows.filter((r) => r[0]).map((r) => ({
+          id: r[0],
+          name: r[1] || "",
+          sortOrder: parseInt(r[2], 10) || 0,
+          archived: r[3] === "TRUE" || r[3] === "true" || r[3] === true
+        })).sort((a, b) => a.sortOrder - b.sortOrder);
         setDailyMetrics(loadedDaily);
         setFoods(loadedFoods);
+        setCategories(loadedCategories);
         setNutritionEntries(loadedNutritionEntries);
         setActiveRoutineId((prev) => {
           var _a;
@@ -721,8 +740,8 @@
       entriesSaveTimeout.current = setTimeout(async () => {
         setSaveState("saving");
         try {
-          const rows = nextEntries.map((e) => [e.id, e.routineId, e.exerciseId, e.band, e.tut, e.note || "", e.timestamp]);
-          await api.clearRange("Entries!A2:G10000");
+          const rows = nextEntries.map((e) => [e.id, e.routineId, e.exerciseId, e.band, e.tut, e.note || "", e.timestamp, e.sessionId || ""]);
+          await api.clearRange("Entries!A2:H10000");
           if (rows.length) await api.updateRange("Entries!A2", rows);
           setSaveState("saved");
           setTimeout(() => setSaveState("idle"), 1200);
@@ -928,6 +947,43 @@
     function toggleArchiveFood(foodId, archived) {
       updateFoods((prev) => prev.map((f) => f.id === foodId ? { ...f, archived } : f));
     }
+    const categoriesSaveTimeout = useRef(null);
+    function persistCategories(nextCategories) {
+      if (categoriesSaveTimeout.current) clearTimeout(categoriesSaveTimeout.current);
+      categoriesSaveTimeout.current = setTimeout(async () => {
+        setSaveState("saving");
+        try {
+          const rows = nextCategories.map((c, i) => [c.id, c.name, i, c.archived ? "TRUE" : "FALSE"]);
+          await api.clearRange("FoodCategories!A2:D10000");
+          if (rows.length) await api.updateRange("FoodCategories!A2", rows);
+          setSaveState("saved");
+          setTimeout(() => setSaveState("idle"), 1200);
+        } catch (e) {
+          setSaveState("error");
+          setErrorMsg(String(e));
+        }
+      }, 500);
+    }
+    function updateCategories(updater) {
+      setCategories((prev) => {
+        const next = updater(prev);
+        persistCategories(next);
+        return next;
+      });
+    }
+    function addCategory(name) {
+      const trimmed = (name || "").trim();
+      if (!trimmed) return;
+      updateCategories((prev) => [...prev, { id: genId("cat"), name: trimmed, archived: false }]);
+    }
+    function renameCategory(categoryId, name) {
+      const trimmed = (name || "").trim();
+      if (!trimmed) return;
+      updateCategories((prev) => prev.map((c) => c.id === categoryId ? { ...c, name: trimmed } : c));
+    }
+    function toggleArchiveCategory(categoryId, archived) {
+      updateCategories((prev) => prev.map((c) => c.id === categoryId ? { ...c, archived } : c));
+    }
     const nutritionEntriesSaveTimeout = useRef(null);
     function persistNutritionEntriesFull(nextEntries) {
       if (nutritionEntriesSaveTimeout.current) clearTimeout(nutritionEntriesSaveTimeout.current);
@@ -1065,13 +1121,15 @@
       const fs = formState[exerciseId] || {};
       const tut = overrideTut !== void 0 ? overrideTut : parseInt(fs.tut, 10);
       if (!tut || tut <= 0) return;
-      const entry = { id: genId("entry"), routineId, exerciseId, band, tut, note: (fs.note || "").trim(), timestamp: Date.now() };
+      const sessionRoutine = routines.find((r) => r.id === routineId);
+      const sessionId = computeSessionId(todayStr(), sessionRoutine);
+      const entry = { id: genId("entry"), routineId, exerciseId, band, tut, note: (fs.note || "").trim(), timestamp: Date.now(), sessionId };
       setEntries((prev) => [...prev, entry]);
       setFormState((prev) => ({ ...prev, [exerciseId]: { tut: "", note: "" } }));
       setTimers((prev) => ({ ...prev, [exerciseId]: { phase: "idle", seconds: 0, countdown: 5 } }));
       setSaveState("saving");
       try {
-        await api.appendRow("Entries!A:G", [entry.id, entry.routineId, entry.exerciseId, entry.band, entry.tut, entry.note, entry.timestamp]);
+        await api.appendRow("Entries!A:H", [entry.id, entry.routineId, entry.exerciseId, entry.band, entry.tut, entry.note, entry.timestamp, entry.sessionId]);
         setSaveState("saved");
         setTimeout(() => setSaveState("idle"), 1200);
       } catch (e) {
@@ -1276,7 +1334,8 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
         runFoodSearch,
         buildNutritionSummary,
         copyNutritionSummary,
-        copiedFlash
+        copiedFlash,
+        categories
       }
     ), view === "trends" && /* @__PURE__ */ React.createElement(TrendsView, { routines, allExercises, trendExerciseIds, setTrendExerciseIds, getExerciseEntries }), view === "manage" && /* @__PURE__ */ React.createElement(
       ManageView,
@@ -1312,7 +1371,15 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
         manageFoodConfirmDelete,
         setManageFoodConfirmDelete,
         expandedFoodCategoryManage,
-        setExpandedFoodCategoryManage
+        setExpandedFoodCategoryManage,
+        categories,
+        addCategory,
+        renameCategory,
+        toggleArchiveCategory,
+        manageCategoryRenaming,
+        setManageCategoryRenaming,
+        manageNewCategoryName,
+        setManageNewCategoryName
       }
     )));
   }
@@ -1439,10 +1506,7 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
     const timer = timers[ex.id] || { phase: "idle", seconds: 0, countdown: 5 };
     const fs = formState[ex.id] || { tut: "", note: "" };
     const isExpanded = expandedExId === ex.id;
-    return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setExpandedExId((prev) => prev === ex.id ? null : ex.id) }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, ex.name), isExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-500" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-500" })), isExpanded && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mb-3 overflow-x-auto", style: { paddingBottom: 4 } }, BANDS.map((b) => {
-      const isSelected = band === b.id;
-      return /* @__PURE__ */ React.createElement("button", { key: b.id, onClick: () => setSelectedBand((prev) => ({ ...prev, [ex.id]: b.id })), className: `shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border-2 text-xs font-semibold bg-orange-500 ${isSelected ? "border-emerald-400" : "border-orange-500"}` }, /* @__PURE__ */ React.createElement("span", { className: "rounded-full border border-black/30", style: { width: 16, height: 16, background: b.swatch } }), /* @__PURE__ */ React.createElement("span", { className: isSelected ? "text-emerald-400" : "text-neutral-950" }, b.label));
-    })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-3" }, /* @__PURE__ */ React.createElement(StatBox, { label: "PR", value: fmtVal(stats.pr, unit) }), /* @__PURE__ */ React.createElement(StatBox, { label: "Last", value: fmtVal(stats.last, unit) }), /* @__PURE__ */ React.createElement(StatBox, { label: "Target", value: stats.targetLow !== null ? `${stats.targetLow}\u2013${fmtVal(stats.targetHigh, unit)}` : "\u2014", accent: true })), isToday && /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-950 border border-neutral-800 rounded-xl p-3 space-y-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1" }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-500" }, unit === "reps" ? "Reps" : "Time under tension"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mt-1" }, unit === "seconds" && /* @__PURE__ */ React.createElement("button", { onClick: () => timer.phase === "idle" ? startTimer(ex.id) : stopTimer(ex.id), className: `shrink-0 w-10 h-10 flex items-center justify-center rounded-lg font-bold text-lg ${timer.phase !== "idle" ? "bg-orange-500 text-neutral-950" : "bg-neutral-900 border border-neutral-800 text-neutral-300"}` }, timer.phase === "countdown" ? timer.countdown : /* @__PURE__ */ React.createElement(Timer, { size: 16 })), unit === "seconds" && (timer.seconds > 0 || fs.tut) && timer.phase === "idle" && /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setExpandedExId((prev) => prev === ex.id ? null : ex.id) }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, ex.name), isExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-500" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-500" })), isExpanded && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4" }, /* @__PURE__ */ React.createElement("select", { value: band, onChange: (e) => setSelectedBand((prev) => ({ ...prev, [ex.id]: e.target.value })), className: "w-full mb-3 bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-100" }, BANDS.map((b) => /* @__PURE__ */ React.createElement("option", { key: b.id, value: b.id }, b.label))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-3" }, /* @__PURE__ */ React.createElement(StatBox, { label: "PR", value: fmtVal(stats.pr, unit) }), /* @__PURE__ */ React.createElement(StatBox, { label: "Last", value: fmtVal(stats.last, unit) }), /* @__PURE__ */ React.createElement(StatBox, { label: "Target", value: stats.targetLow !== null ? `${stats.targetLow}\u2013${fmtVal(stats.targetHigh, unit)}` : "\u2014", accent: true })), isToday && /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-950 border border-neutral-800 rounded-xl p-3 space-y-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1" }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-500" }, unit === "reps" ? "Reps" : "Time under tension"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mt-1" }, unit === "seconds" && /* @__PURE__ */ React.createElement("button", { onClick: () => timer.phase === "idle" ? startTimer(ex.id) : stopTimer(ex.id), className: `shrink-0 w-10 h-10 flex items-center justify-center rounded-lg font-bold text-lg ${timer.phase !== "idle" ? "bg-orange-500 text-neutral-950" : "bg-neutral-900 border border-neutral-800 text-neutral-300"}` }, timer.phase === "countdown" ? timer.countdown : /* @__PURE__ */ React.createElement(Timer, { size: 16 })), unit === "seconds" && (timer.seconds > 0 || fs.tut) && timer.phase === "idle" && /* @__PURE__ */ React.createElement("button", { onClick: () => {
       resetTimer(ex.id);
       setFormState((prev) => ({ ...prev, [ex.id]: { ...fs, tut: "" } }));
     }, className: "shrink-0 w-10 h-10 flex items-center justify-center rounded-lg bg-neutral-900 border border-neutral-800 text-neutral-500" }, /* @__PURE__ */ React.createElement(RotateCcw, { size: 15 })), /* @__PURE__ */ React.createElement(
@@ -1649,19 +1713,23 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
       runFoodSearch,
       buildNutritionSummary,
       copyNutritionSummary,
-      copiedFlash
+      copiedFlash,
+      categories
     } = props;
     const isToday = nutritionViewDate === todayStr();
     const liveFoods = foods.filter((f) => !f.archived);
+    const liveCategories = categories.filter((c) => !c.archived);
     const todaysEntries = nutritionEntries.filter((e) => e.date === nutritionViewDate);
     const totals = computeDayNutritionTotals(todaysEntries, foods);
     const adhocEntries = todaysEntries.filter((e) => !e.foodId);
     const byCategory = {};
-    FOOD_CATEGORIES.forEach((c) => {
-      byCategory[c] = [];
+    liveCategories.forEach((c) => {
+      byCategory[c.id] = [];
     });
+    byCategory[UNCATEGORIZED_ID] = [];
     liveFoods.forEach((f) => {
-      (byCategory[f.category] || (byCategory[f.category] = [])).push(f);
+      const key = byCategory[f.category] !== void 0 ? f.category : UNCATEGORIZED_ID;
+      byCategory[key].push(f);
     });
     return /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-xl px-2 py-1.5" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setNutritionViewDate((d) => addDays(d, -1)), className: "p-1.5 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 18 })), /* @__PURE__ */ React.createElement("span", { className: "text-sm font-semibold text-neutral-50" }, fmtDayLabel(nutritionViewDate)), /* @__PURE__ */ React.createElement("button", { onClick: () => setNutritionViewDate((d) => d === todayStr() ? d : addDays(d, 1)), disabled: isToday, className: `p-1.5 ${isToday ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 18 }))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement(StatBox, { label: "Protein", value: `${totals.protein}g` }), /* @__PURE__ */ React.createElement(StatBox, { label: "Calories", value: `${totals.calories}kcal`, accent: true }), /* @__PURE__ */ React.createElement(StatBox, { label: "Fat", value: `${totals.fat}g` }), /* @__PURE__ */ React.createElement(StatBox, { label: "Carbs", value: `${totals.carbs}g` })), todaysEntries.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Nutrition summary"), /* @__PURE__ */ React.createElement("button", { onClick: () => copyNutritionSummary(`nutri-${nutritionViewDate}`, nutritionViewDate, todaysEntries), className: "text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-500 text-neutral-950" }, copiedFlash === `nutri-${nutritionViewDate}` ? "Copied!" : "Copy")), /* @__PURE__ */ React.createElement("pre", { className: "text-xs text-neutral-300 whitespace-pre-wrap font-mono leading-relaxed" }, buildNutritionSummary(nutritionViewDate, todaysEntries))), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddFood((prev) => !prev), className: "w-full py-2.5 rounded-lg bg-neutral-800 text-neutral-100 text-sm font-semibold flex items-center justify-center gap-1.5" }, /* @__PURE__ */ React.createElement(Plus, { size: 15 }), " Add food"), showAddFood && /* @__PURE__ */ React.createElement(
       AddFoodForm,
@@ -1678,13 +1746,14 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
         foodSearchResults,
         foodSearchStatus,
         foodSearchError,
-        runFoodSearch
+        runFoodSearch,
+        categories
       }
-    ), adhocEntries.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-wide text-neutral-400 mb-2" }, "One-off entries today"), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, adhocEntries.map((e) => /* @__PURE__ */ React.createElement("div", { key: e.id, className: "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-200 flex-1 truncate" }, e.adhocName), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-500 font-mono shrink-0" }, e.adhocProtein, "g / ", e.adhocCalories, "kcal"), /* @__PURE__ */ React.createElement("button", { onClick: () => deleteFoodEntry(e.id), className: "text-neutral-500 p-1 shrink-0" }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 })))))), FOOD_CATEGORIES.map((category) => {
-      const categoryFoods = byCategory[category] || [];
+    ), adhocEntries.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-wide text-neutral-400 mb-2" }, "One-off entries today"), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, adhocEntries.map((e) => /* @__PURE__ */ React.createElement("div", { key: e.id, className: "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-200 flex-1 truncate" }, e.adhocName), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-500 font-mono shrink-0" }, e.adhocProtein, "g / ", e.adhocCalories, "kcal"), /* @__PURE__ */ React.createElement("button", { onClick: () => deleteFoodEntry(e.id), className: "text-neutral-500 p-1 shrink-0" }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 })))))), [...liveCategories, { id: UNCATEGORIZED_ID, name: "Uncategorized" }].map((category) => {
+      const categoryFoods = byCategory[category.id] || [];
       if (categoryFoods.length === 0) return null;
-      const isExpanded = expandedFoodCategoryKey === category;
-      return /* @__PURE__ */ React.createElement("div", { key: category, className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setExpandedFoodCategoryKey((prev) => prev === category ? null : category) }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, category), isExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-500" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-500" })), isExpanded && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-3 space-y-1.5" }, categoryFoods.map((food) => {
+      const isExpanded = expandedFoodCategoryKey === category.id;
+      return /* @__PURE__ */ React.createElement("div", { key: category.id, className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setExpandedFoodCategoryKey((prev) => prev === category.id ? null : category.id) }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, category.name), isExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-500" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-500" })), isExpanded && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-3 space-y-1.5" }, categoryFoods.map((food) => {
         const entry = todaysEntries.find((e) => e.foodId === food.id);
         return /* @__PURE__ */ React.createElement(
           FoodRow,
@@ -1744,7 +1813,7 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
     const defaultDisplay = food.defaultUnit === "oz" ? `${Math.round(food.defaultGrams / OZ_TO_G * 10) / 10}oz` : `${Math.round(food.defaultGrams)}g`;
     return /* @__PURE__ */ React.createElement("button", { onClick: onLog, className: "w-full flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-left" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-200 flex-1 truncate" }, food.name), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-500 shrink-0" }, defaultDisplay), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-500 font-mono shrink-0" }, defaultN.protein, "g / ", defaultN.calories, "kcal"));
   }
-  function AddFoodForm({ addFoodForm, setAddFoodForm, addFood, setShowAddFood, nutritionViewDate, logFood, logAdHocFood, foodSearchQuery, setFoodSearchQuery, foodSearchResults, foodSearchStatus, foodSearchError, runFoodSearch }) {
+  function AddFoodForm({ addFoodForm, setAddFoodForm, addFood, setShowAddFood, nutritionViewDate, logFood, logAdHocFood, foodSearchQuery, setFoodSearchQuery, foodSearchResults, foodSearchStatus, foodSearchError, runFoodSearch, categories }) {
     const [saveMode, setSaveMode] = useState("library");
     function applySearchResult(result) {
       setAddFoodForm((prev) => {
@@ -1777,7 +1846,7 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
       } else {
         const newFood = addFood({
           name,
-          category: addFoodForm.category,
+          category: addFoodForm.category || (categories.find((c) => !c.archived) || {}).id || "",
           proteinPer100g: protein,
           caloriesPer100g: calories,
           fatPer100g: fat,
@@ -1793,10 +1862,11 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
     return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setSaveMode("library"), className: `flex-1 py-2 rounded-lg text-xs font-semibold ${saveMode === "library" ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 border border-neutral-800 text-neutral-400"}` }, "Save to my food list"), /* @__PURE__ */ React.createElement("button", { onClick: () => setSaveMode("onceOnly"), className: `flex-1 py-2 rounded-lg text-xs font-semibold ${saveMode === "onceOnly" ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 border border-neutral-800 text-neutral-400"}` }, "Just log this once")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Look up a food (USDA + Open Food Facts)"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-1" }, /* @__PURE__ */ React.createElement("input", { type: "text", value: foodSearchQuery, onChange: (e) => setFoodSearchQuery(e.target.value), placeholder: "e.g. chicken breast", className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-100" }), /* @__PURE__ */ React.createElement("button", { onClick: runFoodSearch, disabled: foodSearchStatus === "loading", className: "w-10 h-10 shrink-0 flex items-center justify-center rounded-lg bg-neutral-800 text-neutral-200" }, /* @__PURE__ */ React.createElement(Search, { size: 16 }))), foodSearchStatus === "loading" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500 mt-2" }, "Searching\u2026"), foodSearchError && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-red-400 mt-2 whitespace-pre-wrap" }, foodSearchError), foodSearchStatus === "done" && foodSearchResults.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500 mt-2" }, "No results."), foodSearchResults.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-2 space-y-1.5 max-h-48 overflow-y-auto" }, foodSearchResults.map((r, i) => {
       var _a, _b, _c, _d;
       return /* @__PURE__ */ React.createElement("button", { key: i, onClick: () => applySearchResult(r), className: "w-full text-left bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm text-neutral-100 truncate" }, r.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500" }, r.source, " \u2014 ", (_a = r.proteinPer100g) != null ? _a : "?", "g protein / ", (_b = r.caloriesPer100g) != null ? _b : "?", "kcal / ", (_c = r.fatPer100g) != null ? _c : "?", "g fat / ", (_d = r.carbsPer100g) != null ? _d : "?", "g carbs per 100g"));
-    }))), /* @__PURE__ */ React.createElement("div", { className: "border-t border-neutral-800 pt-3 space-y-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Name"), /* @__PURE__ */ React.createElement("input", { type: "text", value: addFoodForm.name, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, name: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm text-neutral-100" })), saveMode === "library" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Category"), /* @__PURE__ */ React.createElement("select", { value: addFoodForm.category, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, category: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm text-neutral-100" }, FOOD_CATEGORIES.map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Protein / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.proteinPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, proteinPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Calories / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.caloriesPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, caloriesPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Fat / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.fatPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, fatPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Carbs / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.carbsPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, carbsPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, saveMode === "onceOnly" ? "Amount you're eating" : "Your usual amount"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-1" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.defaultAmount, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, defaultAmount: e.target.value })), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("div", { className: "flex shrink-0 rounded-lg overflow-hidden border border-neutral-800" }, ["g", "oz"].map((u) => /* @__PURE__ */ React.createElement("button", { key: u, onClick: () => setAddFoodForm((prev) => ({ ...prev, defaultUnit: u })), className: `px-3 py-2 text-xs font-semibold ${addFoodForm.defaultUnit === u ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 text-neutral-400"}` }, u))))), saveMode === "library" && /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-2 text-sm text-neutral-300" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: addFoodForm.logToday, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, logToday: e.target.checked })) }), "Log this now for ", fmtDayLabel(nutritionViewDate)), saveMode === "onceOnly" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500" }, "Logs immediately for ", fmtDayLabel(nutritionViewDate), " \u2014 won't be saved to your food list."), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: handleSave, className: "flex-1 py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, saveMode === "onceOnly" ? "Log it" : "Save food"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddFood(false), className: "px-4 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Cancel"))));
+    }))), /* @__PURE__ */ React.createElement("div", { className: "border-t border-neutral-800 pt-3 space-y-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Name"), /* @__PURE__ */ React.createElement("input", { type: "text", value: addFoodForm.name, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, name: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm text-neutral-100" })), saveMode === "library" && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Category"), /* @__PURE__ */ React.createElement("select", { value: addFoodForm.category, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, category: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm text-neutral-100" }, categories.filter((c) => !c.archived).map((c) => /* @__PURE__ */ React.createElement("option", { key: c.id, value: c.id }, c.name)))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Protein / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.proteinPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, proteinPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Calories / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.caloriesPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, caloriesPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Fat / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.fatPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, fatPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Carbs / 100g"), /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.carbsPer100g, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, carbsPer100g: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, saveMode === "onceOnly" ? "Amount you're eating" : "Your usual amount"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-1" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: addFoodForm.defaultAmount, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, defaultAmount: e.target.value })), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("div", { className: "flex shrink-0 rounded-lg overflow-hidden border border-neutral-800" }, ["g", "oz"].map((u) => /* @__PURE__ */ React.createElement("button", { key: u, onClick: () => setAddFoodForm((prev) => ({ ...prev, defaultUnit: u })), className: `px-3 py-2 text-xs font-semibold ${addFoodForm.defaultUnit === u ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 text-neutral-400"}` }, u))))), saveMode === "library" && /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-2 text-sm text-neutral-300" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: addFoodForm.logToday, onChange: (e) => setAddFoodForm((prev) => ({ ...prev, logToday: e.target.checked })) }), "Log this now for ", fmtDayLabel(nutritionViewDate)), saveMode === "onceOnly" && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500" }, "Logs immediately for ", fmtDayLabel(nutritionViewDate), " \u2014 won't be saved to your food list."), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: handleSave, className: "flex-1 py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, saveMode === "onceOnly" ? "Log it" : "Save food"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowAddFood(false), className: "px-4 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Cancel"))));
   }
-  function ManageFoodRow({ food, isRenaming, setRenaming, editFood, isConfirmingDelete, setConfirmingDelete, toggleArchiveFood }) {
+  function ManageFoodRow({ food, isRenaming, setRenaming, editFood, isConfirmingDelete, setConfirmingDelete, toggleArchiveFood, categories }) {
     const [name, setName] = useState(food.name);
+    const [category, setCategory] = useState(food.category);
     const [protein, setProtein] = useState(String(food.proteinPer100g));
     const [calories, setCalories] = useState(String(food.caloriesPer100g));
     const [fat, setFat] = useState(String(food.fatPer100g || 0));
@@ -1804,13 +1874,14 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
     const [amount, setAmount] = useState(String(food.defaultUnit === "oz" ? Math.round(food.defaultGrams / OZ_TO_G * 10) / 10 : food.defaultGrams));
     const [unit, setUnit] = useState(food.defaultUnit || "g");
     if (isRenaming) {
-      return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-950 border border-orange-500 rounded-lg p-2.5 space-y-2", style: { borderWidth: 1 } }, /* @__PURE__ */ React.createElement("input", { type: "text", value: name, onChange: (e) => setName(e.target.value), className: "w-full bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm text-neutral-100" }), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: protein, onChange: (e) => setProtein(e.target.value), placeholder: "Protein/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: calories, onChange: (e) => setCalories(e.target.value), placeholder: "Cal/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: fat, onChange: (e) => setFat(e.target.value), placeholder: "Fat/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: carbs, onChange: (e) => setCarbs(e.target.value), placeholder: "Carbs/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: amount, onChange: (e) => setAmount(e.target.value), placeholder: "Usual amount", className: "flex-1 bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("div", { className: "flex shrink-0 rounded-md overflow-hidden border border-neutral-800" }, ["g", "oz"].map((u) => /* @__PURE__ */ React.createElement("button", { key: u, onClick: () => setUnit(u), className: `px-2 py-1 text-xs font-semibold ${unit === u ? "bg-orange-500 text-neutral-950" : "bg-neutral-900 text-neutral-400"}` }, u)))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement(
+      return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-950 border border-orange-500 rounded-lg p-2.5 space-y-2", style: { borderWidth: 1 } }, /* @__PURE__ */ React.createElement("input", { type: "text", value: name, onChange: (e) => setName(e.target.value), className: "w-full bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm text-neutral-100" }), /* @__PURE__ */ React.createElement("select", { value: category, onChange: (e) => setCategory(e.target.value), className: "w-full bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm text-neutral-100" }, categories.filter((c) => !c.archived).map((c) => /* @__PURE__ */ React.createElement("option", { key: c.id, value: c.id }, c.name))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: protein, onChange: (e) => setProtein(e.target.value), placeholder: "Protein/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: calories, onChange: (e) => setCalories(e.target.value), placeholder: "Cal/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: fat, onChange: (e) => setFat(e.target.value), placeholder: "Fat/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: carbs, onChange: (e) => setCarbs(e.target.value), placeholder: "Carbs/100g", className: "bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: amount, onChange: (e) => setAmount(e.target.value), placeholder: "Usual amount", className: "flex-1 bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("div", { className: "flex shrink-0 rounded-md overflow-hidden border border-neutral-800" }, ["g", "oz"].map((u) => /* @__PURE__ */ React.createElement("button", { key: u, onClick: () => setUnit(u), className: `px-2 py-1 text-xs font-semibold ${unit === u ? "bg-orange-500 text-neutral-950" : "bg-neutral-900 text-neutral-400"}` }, u)))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement(
         "button",
         {
           onClick: () => {
             const amt = parseFloat(amount) || food.defaultGrams;
             editFood(food.id, {
               name: name.trim() || food.name,
+              category,
               proteinPer100g: parseFloat(protein) || 0,
               caloriesPer100g: parseFloat(calories) || 0,
               fatPer100g: parseFloat(fat) || 0,
@@ -1826,7 +1897,8 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
         " Save"
       ), /* @__PURE__ */ React.createElement("button", { onClick: () => setRenaming(false), className: "flex-1 py-1.5 rounded-md bg-neutral-800 text-neutral-300 text-sm flex items-center justify-center gap-1" }, /* @__PURE__ */ React.createElement(X, { size: 14 }), " Cancel")));
     }
-    return /* @__PURE__ */ React.createElement("div", { className: `flex items-center justify-between rounded-lg px-2 py-2 border border-neutral-800 ${food.archived ? "bg-neutral-950/50" : "bg-neutral-950"}` }, /* @__PURE__ */ React.createElement("span", { className: `text-sm truncate ${food.archived ? "text-neutral-600 line-through" : "text-neutral-200"}` }, food.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-neutral-500 font-mono" }, food.proteinPer100g, "g/", food.caloriesPer100g, "kcal/", food.fatPer100g || 0, "g fat/", food.carbsPer100g || 0, "g carb"), /* @__PURE__ */ React.createElement("button", { onClick: () => setRenaming(true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), food.archived ? /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveFood(food.id, false), className: "text-emerald-400 p-1.5 flex items-center gap-1 text-xs font-medium" }, /* @__PURE__ */ React.createElement(Eye, { size: 13 }), " Show") : /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveFood(food.id, true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(EyeOff, { size: 13 }))));
+    const categoryName = (categories.find((c) => c.id === food.category) || {}).name || "Uncategorized";
+    return /* @__PURE__ */ React.createElement("div", { className: `flex items-center justify-between rounded-lg px-2 py-2 border border-neutral-800 ${food.archived ? "bg-neutral-950/50" : "bg-neutral-950"}` }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("span", { className: `text-sm truncate ${food.archived ? "text-neutral-600 line-through" : "text-neutral-200"}` }, food.name), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-neutral-500" }, categoryName)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-neutral-500 font-mono" }, food.proteinPer100g, "g/", food.caloriesPer100g, "kcal/", food.fatPer100g || 0, "g fat/", food.carbsPer100g || 0, "g carb"), /* @__PURE__ */ React.createElement("button", { onClick: () => setRenaming(true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), food.archived ? /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveFood(food.id, false), className: "text-emerald-400 p-1.5 flex items-center gap-1 text-xs font-medium" }, /* @__PURE__ */ React.createElement(Eye, { size: 13 }), " Show") : /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveFood(food.id, true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(EyeOff, { size: 13 }))));
   }
   function ManageView(props) {
     const {
@@ -1861,17 +1933,25 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
       manageFoodConfirmDelete,
       setManageFoodConfirmDelete,
       expandedFoodCategoryManage,
-      setExpandedFoodCategoryManage
+      setExpandedFoodCategoryManage,
+      categories,
+      addCategory,
+      renameCategory,
+      toggleArchiveCategory,
+      manageCategoryRenaming,
+      setManageCategoryRenaming,
+      manageNewCategoryName,
+      setManageNewCategoryName
     } = props;
     return /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, routines.map((r) => {
       const isExpanded = expandedRoutine === r.id;
       const liveCount = r.exercises.filter((ex) => !ex.archived).length;
       return /* @__PURE__ */ React.createElement("div", { key: r.id, className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, manageRenaming === `routine-${r.id}` ? /* @__PURE__ */ React.createElement(RenameInline, { initial: r.name, onSave: (name) => renameRoutine(r.id, name), onCancel: () => setManageRenaming(null) }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => setExpandedRoutine((prev) => prev === r.id ? null : r.id), className: "flex items-center gap-2 min-w-0 flex-1 text-left" }, isExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 16, className: "text-neutral-400 shrink-0" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 16, className: "text-neutral-400 shrink-0" }), /* @__PURE__ */ React.createElement("span", { className: "font-bold text-neutral-50 truncate" }, r.name), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-500 shrink-0" }, liveCount, " movement", liveCount === 1 ? "" : "s")), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setManageRenaming(`routine-${r.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 14 })), confirmDelete === `routine-${r.id}` ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => deleteRoutine(r.id), className: "text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md" }, "Confirm"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDelete(null), className: "text-neutral-400 text-xs px-2 py-1 bg-neutral-800 rounded-md" }, "Cancel")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDelete(`routine-${r.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }))))), isExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, r.exercises.map((ex, idx) => /* @__PURE__ */ React.createElement("div", { key: ex.id, className: `flex items-center justify-between rounded-lg px-2 py-2 border border-neutral-800 ${ex.archived ? "bg-neutral-950/50" : "bg-neutral-950"}` }, manageRenaming === `ex-${ex.id}` ? /* @__PURE__ */ React.createElement(RenameInline, { initial: ex.name, onSave: (name) => renameExercise(r.id, ex.id, name), onCancel: () => setManageRenaming(null) }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col shrink-0 text-neutral-500" }, /* @__PURE__ */ React.createElement("button", { onClick: () => moveExercise(r.id, ex.id, -1), disabled: idx === 0, className: idx === 0 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronUp, { size: 14 })), /* @__PURE__ */ React.createElement("button", { onClick: () => moveExercise(r.id, ex.id, 1), disabled: idx === r.exercises.length - 1, className: idx === r.exercises.length - 1 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronDown, { size: 14 }))), /* @__PURE__ */ React.createElement("span", { className: `text-sm truncate ${ex.archived ? "text-neutral-600 line-through" : "text-neutral-200"}` }, ex.name)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => toggleUnit(r.id, ex.id), className: "text-[10px] font-semibold px-1.5 py-1 rounded-md bg-neutral-900 border border-neutral-800 text-neutral-400 uppercase" }, (ex.unit || "seconds") === "reps" ? "Reps" : "Time"), /* @__PURE__ */ React.createElement("button", { onClick: () => setManageRenaming(`ex-${ex.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), ex.archived ? /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchive(r.id, ex.id, false), className: "text-emerald-400 p-1.5 flex items-center gap-1 text-xs font-medium" }, /* @__PURE__ */ React.createElement(Eye, { size: 13 }), " Show") : /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchive(r.id, ex.id, true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(EyeOff, { size: 13 }))))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-3" }, /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "New exercise", value: manageNewExName[r.id] || "", onChange: (e) => setManageNewExName((prev) => ({ ...prev, [r.id]: e.target.value })), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("div", { className: "flex shrink-0 rounded-lg overflow-hidden border border-neutral-800" }, ["seconds", "reps"].map((u) => /* @__PURE__ */ React.createElement("button", { key: u, onClick: () => setManageNewExUnit((prev) => ({ ...prev, [r.id]: u })), className: `px-2 py-2 text-[11px] font-semibold uppercase ${(manageNewExUnit[r.id] || "seconds") === u ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 text-neutral-400"}` }, u === "reps" ? "Reps" : "Time"))), /* @__PURE__ */ React.createElement("button", { onClick: () => addExercise(r.id), className: "w-10 h-10 shrink-0 flex items-center justify-center rounded-lg bg-neutral-800 text-neutral-200" }, /* @__PURE__ */ React.createElement(Plus, { size: 16 })))));
-    }), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-300 mb-2" }, "New routine"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "e.g. Leg Day", value: manageNewRoutineName, onChange: (e) => setManageNewRoutineName(e.target.value), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: addRoutine, className: "px-4 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Add"))), /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-200 pt-2" }, "Foods"), FOOD_CATEGORIES.map((category) => {
-      const categoryFoods = foods.filter((f) => f.category === category);
+    }), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-300 mb-2" }, "New routine"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "e.g. Leg Day", value: manageNewRoutineName, onChange: (e) => setManageNewRoutineName(e.target.value), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: addRoutine, className: "px-4 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Add"))), /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-200 pt-2" }, "Foods"), [...categories.filter((c) => !c.archived), { id: UNCATEGORIZED_ID, name: "Uncategorized" }].map((category) => {
+      const categoryFoods = foods.filter((f) => f.category === category.id || !categories.find((c) => c.id === f.category) && category.id === UNCATEGORIZED_ID);
       if (categoryFoods.length === 0) return null;
-      const isExpanded = expandedFoodCategoryManage[category] === true;
-      return /* @__PURE__ */ React.createElement("div", { key: category, className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setExpandedFoodCategoryManage((prev) => ({ ...prev, [category]: prev[category] !== true })), className: "w-full flex items-center justify-between" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold text-neutral-50" }, category), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-500" }, categoryFoods.filter((f) => !f.archived).length, " foods")), isExpanded && /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5 mt-3" }, categoryFoods.map((food) => /* @__PURE__ */ React.createElement(
+      const isExpanded = expandedFoodCategoryManage[category.id] === true;
+      return /* @__PURE__ */ React.createElement("div", { key: category.id, className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setExpandedFoodCategoryManage((prev) => ({ ...prev, [category.id]: prev[category.id] !== true })), className: "w-full flex items-center justify-between" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold text-neutral-50" }, category.name), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-500" }, categoryFoods.filter((f) => !f.archived).length, " foods")), isExpanded && /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5 mt-3" }, categoryFoods.map((food) => /* @__PURE__ */ React.createElement(
         ManageFoodRow,
         {
           key: food.id,
@@ -1881,10 +1961,11 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
           editFood,
           isConfirmingDelete: manageFoodConfirmDelete === food.id,
           setConfirmingDelete: (v) => setManageFoodConfirmDelete(v ? food.id : null),
-          toggleArchiveFood
+          toggleArchiveFood,
+          categories
         }
       ))));
-    }), /* @__PURE__ */ React.createElement("button", { onClick: loadAllData, className: "w-full py-2.5 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Reload from Sheet"));
+    }), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-300 mb-2" }, "Categories"), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5 mb-3" }, categories.map((cat) => manageCategoryRenaming === cat.id ? /* @__PURE__ */ React.createElement("div", { key: cat.id, className: "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1.5" }, /* @__PURE__ */ React.createElement(RenameInline, { initial: cat.name, onSave: (name) => { renameCategory(cat.id, name); setManageCategoryRenaming(null); }, onCancel: () => setManageCategoryRenaming(null) })) : /* @__PURE__ */ React.createElement("div", { key: cat.id, className: `flex items-center justify-between rounded-lg px-3 py-2 border border-neutral-800 ${cat.archived ? "bg-neutral-950/50" : "bg-neutral-950"}` }, /* @__PURE__ */ React.createElement("span", { className: `text-sm truncate ${cat.archived ? "text-neutral-600 line-through" : "text-neutral-200"}` }, cat.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setManageCategoryRenaming(cat.id), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), cat.archived ? /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveCategory(cat.id, false), className: "text-emerald-400 p-1.5 flex items-center gap-1 text-xs font-medium" }, /* @__PURE__ */ React.createElement(Eye, { size: 13 }), " Show") : /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveCategory(cat.id, true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(EyeOff, { size: 13 }))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "New category", value: manageNewCategoryName, onChange: (e) => setManageNewCategoryName(e.target.value), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => { addCategory(manageNewCategoryName); setManageNewCategoryName(""); }, className: "px-4 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Add")))), /* @__PURE__ */ React.createElement("button", { onClick: loadAllData, className: "w-full py-2.5 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Reload from Sheet"));
   }
   try {
     window.__appBooted = true;
