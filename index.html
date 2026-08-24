@@ -394,31 +394,38 @@
     const m = Math.round((decimalHours - h) * 60);
     return `${h}:${String(m).padStart(2, "0")}`;
   }
-  function useSheetsApi(accessToken) {
-    const authHeaders = { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
+  function useSheetsApi(accessToken, getAccessToken, refreshAccessToken) {
+    async function authFetch(url, options, label) {
+      const doFetch = (token) => fetch(url, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } });
+      let res = await doFetch(getAccessToken());
+      if (res.status === 401 && refreshAccessToken) {
+        const freshToken = await refreshAccessToken();
+        res = await doFetch(freshToken);
+      }
+      if (!res.ok) throw new Error(`${label} failed (${res.status}): ${await res.text()}`);
+      return res;
+    }
     async function getRange(range) {
-      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}`, { headers: authHeaders });
-      if (!res.ok) throw new Error(`Read failed (${res.status}): ${await res.text()}`);
+      const res = await authFetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}`, { headers: { "Content-Type": "application/json" } }, "Read");
       const data = await res.json();
       return data.values || [];
     }
     async function clearRange(range) {
-      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:clear`, { method: "POST", headers: authHeaders });
-      if (!res.ok) throw new Error(`Clear failed (${res.status}): ${await res.text()}`);
+      await authFetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:clear`, { method: "POST", headers: { "Content-Type": "application/json" } }, "Clear");
     }
     async function updateRange(range, values) {
       if (values.length === 0) return;
-      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, { method: "PUT", headers: authHeaders, body: JSON.stringify({ values }) });
-      if (!res.ok) throw new Error(`Write failed (${res.status}): ${await res.text()}`);
+      await authFetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values }) }, "Write");
     }
     async function appendRow(range, row) {
-      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW`, { method: "POST", headers: authHeaders, body: JSON.stringify({ values: [row] }) });
-      if (!res.ok) throw new Error(`Append failed (${res.status}): ${await res.text()}`);
+      await authFetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values: [row] }) }, "Append");
     }
     return { getRange, clearRange, updateRange, appendRow };
   }
   function App() {
     const [accessToken, setAccessToken] = useState(null);
+    const accessTokenRef = useRef(null);
+    const pendingTokenResolvers = useRef([]);
     const [tokenClient, setTokenClient] = useState(null);
     const [checkingSilentAuth, setCheckingSilentAuth] = useState(true);
     const [errorMsg, setErrorMsg] = useState(null);
@@ -477,9 +484,23 @@
     const [manageFoodRenaming, setManageFoodRenaming] = useState(null);
     const [manageFoodConfirmDelete, setManageFoodConfirmDelete] = useState(null);
     const [manageCategoryRenaming, setManageCategoryRenaming] = useState(null);
+    const [manageCategoriesExpanded, setManageCategoriesExpanded] = useState(false);
     const [manageNewCategoryName, setManageNewCategoryName] = useState("");
     const [expandedFoodCategoryManage, setExpandedFoodCategoryManage] = useState(null);
-    const api = useSheetsApi(accessToken);
+    useEffect(() => {
+      accessTokenRef.current = accessToken;
+    }, [accessToken]);
+    function refreshAccessToken() {
+      return new Promise((resolve, reject) => {
+        if (!tokenClient) {
+          reject(new Error("Not signed in"));
+          return;
+        }
+        pendingTokenResolvers.current.push({ resolve, reject });
+        tokenClient.requestAccessToken({ prompt: "" });
+      });
+    }
+    const api = useSheetsApi(accessToken, () => accessTokenRef.current, refreshAccessToken);
     function cacheToken(token, expiresInSeconds) {
       const expiryTs = Date.now() + expiresInSeconds * 1e3 - 6e4;
       try {
@@ -522,7 +543,13 @@
         const onResp = (resp) => {
           if (resp.error) {
             setCheckingSilentAuth(false);
-            if (resp.error !== "user_logged_out" && resp.error !== "immediate_failed") setErrorMsg("Sign-in failed: " + JSON.stringify(resp));
+            const resolvers = pendingTokenResolvers.current;
+            pendingTokenResolvers.current = [];
+            if (resolvers.length) {
+              resolvers.forEach(({ reject }) => reject(new Error("Token refresh failed: " + resp.error)));
+            } else if (resp.error !== "user_logged_out" && resp.error !== "immediate_failed") {
+              setErrorMsg("Sign-in failed: " + JSON.stringify(resp));
+            }
             return;
           }
           if (!hasRequiredScopes(resp.scope)) {
@@ -538,6 +565,10 @@
           setCheckingSilentAuth(false);
           cacheToken(resp.access_token, resp.expires_in || 3500);
           setAccessToken(resp.access_token);
+          accessTokenRef.current = resp.access_token;
+          const resolvers = pendingTokenResolvers.current;
+          pendingTokenResolvers.current = [];
+          resolvers.forEach(({ resolve }) => resolve(resp.access_token));
         };
         const client = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: onResp });
         setTokenClient(client);
@@ -1419,7 +1450,9 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
         manageNewCategoryName,
         setManageNewCategoryName,
         moveFood,
-        moveCategory
+        moveCategory,
+        manageCategoriesExpanded,
+        setManageCategoriesExpanded
       }
     )));
   }
@@ -1987,7 +2020,9 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
       manageNewCategoryName,
       setManageNewCategoryName,
       moveFood,
-      moveCategory
+      moveCategory,
+      manageCategoriesExpanded,
+      setManageCategoriesExpanded
     } = props;
     return /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, routines.map((r) => {
       const isExpanded = expandedRoutine === r.id;
@@ -2014,7 +2049,7 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
           categories
         }
       ))));
-    }), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-300 mb-2" }, "Categories"), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5 mb-3" }, categories.slice().sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)).map((cat, idx, arr) => manageCategoryRenaming === cat.id ? /* @__PURE__ */ React.createElement("div", { key: cat.id, className: "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1.5" }, /* @__PURE__ */ React.createElement(RenameInline, { initial: cat.name, onSave: (name) => { renameCategory(cat.id, name); setManageCategoryRenaming(null); }, onCancel: () => setManageCategoryRenaming(null) })) : /* @__PURE__ */ React.createElement("div", { key: cat.id, className: `flex items-center justify-between rounded-lg px-3 py-2 border border-neutral-800 ${cat.archived ? "bg-neutral-950/50" : "bg-neutral-950"}` }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col shrink-0 text-neutral-500" }, /* @__PURE__ */ React.createElement("button", { onClick: () => moveCategory(cat.id, -1), disabled: idx === 0, className: idx === 0 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronUp, { size: 14 })), /* @__PURE__ */ React.createElement("button", { onClick: () => moveCategory(cat.id, 1), disabled: idx === arr.length - 1, className: idx === arr.length - 1 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronDown, { size: 14 }))), /* @__PURE__ */ React.createElement("span", { className: `text-sm truncate ${cat.archived ? "text-neutral-600 line-through" : "text-neutral-200"}` }, cat.name)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setManageCategoryRenaming(cat.id), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), cat.archived ? /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveCategory(cat.id, false), className: "text-emerald-400 p-1.5 flex items-center gap-1 text-xs font-medium" }, /* @__PURE__ */ React.createElement(Eye, { size: 13 }), " Show") : /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveCategory(cat.id, true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(EyeOff, { size: 13 }))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "New category", value: manageNewCategoryName, onChange: (e) => setManageNewCategoryName(e.target.value), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => { addCategory(manageNewCategoryName); setManageNewCategoryName(""); }, className: "px-4 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Add")))), /* @__PURE__ */ React.createElement("button", { onClick: loadAllData, className: "w-full py-2.5 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Reload from Sheet"));
+    }), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setManageCategoriesExpanded((prev) => !prev), className: "w-full flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-sm font-semibold text-neutral-300" }, "Categories"), manageCategoriesExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 16, className: "text-neutral-400" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 16, className: "text-neutral-400" })), manageCategoriesExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5 mb-3" }, categories.slice().sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)).map((cat, idx, arr) => manageCategoryRenaming === cat.id ? /* @__PURE__ */ React.createElement("div", { key: cat.id, className: "flex items-center gap-2 bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1.5" }, /* @__PURE__ */ React.createElement(RenameInline, { initial: cat.name, onSave: (name) => { renameCategory(cat.id, name); setManageCategoryRenaming(null); }, onCancel: () => setManageCategoryRenaming(null) })) : /* @__PURE__ */ React.createElement("div", { key: cat.id, className: `flex items-center justify-between rounded-lg px-3 py-2 border border-neutral-800 ${cat.archived ? "bg-neutral-950/50" : "bg-neutral-950"}` }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col shrink-0 text-neutral-500" }, /* @__PURE__ */ React.createElement("button", { onClick: () => moveCategory(cat.id, -1), disabled: idx === 0, className: idx === 0 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronUp, { size: 14 })), /* @__PURE__ */ React.createElement("button", { onClick: () => moveCategory(cat.id, 1), disabled: idx === arr.length - 1, className: idx === arr.length - 1 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronDown, { size: 14 }))), /* @__PURE__ */ React.createElement("span", { className: `text-sm truncate ${cat.archived ? "text-neutral-600 line-through" : "text-neutral-200"}` }, cat.name)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setManageCategoryRenaming(cat.id), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), cat.archived ? /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveCategory(cat.id, false), className: "text-emerald-400 p-1.5 flex items-center gap-1 text-xs font-medium" }, /* @__PURE__ */ React.createElement(Eye, { size: 13 }), " Show") : /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchiveCategory(cat.id, true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(EyeOff, { size: 13 }))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "New category", value: manageNewCategoryName, onChange: (e) => setManageNewCategoryName(e.target.value), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => { addCategory(manageNewCategoryName); setManageNewCategoryName(""); }, className: "px-4 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Add"))))), /* @__PURE__ */ React.createElement("button", { onClick: loadAllData, className: "w-full py-2.5 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Reload from Sheet"));
   }
   try {
     window.__appBooted = true;
