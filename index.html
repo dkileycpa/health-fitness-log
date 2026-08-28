@@ -952,8 +952,11 @@
       saveMeasurementEntry(measurementForm.date, values);
       setMeasurementForm({ date: measurementForm.date, waistNaval: "", waistBand: "", shoulders: "", chest: "", hips: "" });
     }
-    function computeRatioSeries(key2) {
-      return measurements.filter((m) => m.waistNaval !== null && m[key2] !== null && m[key2] !== 0).map((m) => ({ date: m.date, value: Math.round(m.waistNaval / m[key2] * 1000) / 1000 })).sort((a, b) => a.date.localeCompare(b.date));
+    function computeRatioSeries(key2, invert) {
+      return measurements.filter((m) => m.waistNaval !== null && m[key2] !== null && m[key2] !== 0 && m.waistNaval !== 0).map((m) => {
+        const raw = invert ? m[key2] / m.waistNaval : m.waistNaval / m[key2];
+        return { date: m.date, value: Math.round(raw * 1000) / 1000 };
+      }).sort((a, b) => a.date.localeCompare(b.date));
     }
     function commitDailyForm(morningValues, nutritionValues) {
       saveDailyEntry(dailyForm.date, morningValues);
@@ -1778,13 +1781,13 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
     const RANGE_DAYS = { "1W": 7, "1M": 30, "3M": 90, "6M": 180 };
     const cutoffTs = Date.now() - RANGE_DAYS[ratioChartRange] * 24 * 60 * 60 * 1000;
     const ratioDefs = [
-      { key: "hips", label: "Waist:Hip", color: "#f97316" },
-      { key: "shoulders", label: "Waist:Shoulder", color: "#22d3ee" },
-      { key: "chest", label: "Waist:Chest", color: "#a78bfa" }
+      { key: "hips", label: "Waist:Hip", invert: false, color: "#f97316" },
+      { key: "shoulders", label: "Shoulder:Waist", invert: true, color: "#22d3ee" },
+      { key: "chest", label: "Waist:Chest", invert: false, color: "#a78bfa" }
     ];
     const ratioSeriesByKey = {};
     ratioDefs.forEach((r) => {
-      ratioSeriesByKey[r.key] = computeRatioSeries(r.key);
+      ratioSeriesByKey[r.key] = computeRatioSeries(r.key, r.invert);
     });
     const dateSet = /* @__PURE__ */ new Set();
     ratioDefs.forEach((r) => {
