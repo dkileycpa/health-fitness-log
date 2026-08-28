@@ -475,7 +475,8 @@
     const [measurementForm, setMeasurementForm] = useState({ date: todayStr(), waistNaval: "", waistBand: "", shoulders: "", chest: "", hips: "" });
     const [measurementEditing, setMeasurementEditing] = useState(null);
     const [measurementConfirmDelete, setMeasurementConfirmDelete] = useState(null);
-    const [measurementsExpanded, setMeasurementsExpanded] = useState(false);
+
+
     const [ratioChartRange, setRatioChartRange] = useState("3M");
     const [nutritionEntries, setNutritionEntries] = useState([]);
     const [nutritionViewDate, setNutritionViewDate] = useState(todayStr());
@@ -1462,8 +1463,6 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
         setMeasurementEditing,
         measurementConfirmDelete,
         setMeasurementConfirmDelete,
-        measurementsExpanded,
-        setMeasurementsExpanded,
         ratioChartRange,
         setRatioChartRange,
         applyMeasurementDate,
@@ -1734,8 +1733,6 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
       setMeasurementEditing,
       measurementConfirmDelete,
       setMeasurementConfirmDelete,
-      measurementsExpanded,
-      setMeasurementsExpanded,
       ratioChartRange,
       setRatioChartRange,
       applyMeasurementDate,
@@ -1770,7 +1767,7 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
         clearDailyValue,
         moveDailyValue
       }
-    ))), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setMeasurementsExpanded((prev) => !prev) }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Body Measurements"), measurementsExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-400" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-400" })), measurementsExpanded && /* @__PURE__ */ React.createElement(MeasurementsSection, { measurements, measurementForm, setMeasurementForm, measurementEditing, setMeasurementEditing, measurementConfirmDelete, setMeasurementConfirmDelete, ratioChartRange, setRatioChartRange, applyMeasurementDate, submitMeasurementForm, saveMeasurementEntry, deleteMeasurementEntry, computeRatioSeries }));
+    )), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setExpandedMetricKey((prev) => prev === "measurements" ? null : "measurements") }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Body Measurements"), expandedMetricKey === "measurements" ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-400" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-400" })), expandedMetricKey === "measurements" && /* @__PURE__ */ React.createElement(MeasurementsSection, { measurements, measurementForm, setMeasurementForm, measurementEditing, setMeasurementEditing, measurementConfirmDelete, setMeasurementConfirmDelete, ratioChartRange, setRatioChartRange, applyMeasurementDate, submitMeasurementForm, saveMeasurementEntry, deleteMeasurementEntry, computeRatioSeries })));
   }
   function MeasurementsSection(props) {
     const {
