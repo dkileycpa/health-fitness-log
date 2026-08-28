@@ -471,6 +471,12 @@
     const [manageNewExUnit, setManageNewExUnit] = useState({});
     const [foods, setFoods] = useState([]);
     const [categories, setCategories] = useState([]);
+    const [measurements, setMeasurements] = useState([]);
+    const [measurementForm, setMeasurementForm] = useState({ date: todayStr(), waistNaval: "", waistBand: "", shoulders: "", chest: "", hips: "" });
+    const [measurementEditing, setMeasurementEditing] = useState(null);
+    const [measurementConfirmDelete, setMeasurementConfirmDelete] = useState(null);
+    const [measurementsExpanded, setMeasurementsExpanded] = useState(false);
+    const [ratioChartRange, setRatioChartRange] = useState("3M");
     const [nutritionEntries, setNutritionEntries] = useState([]);
     const [nutritionViewDate, setNutritionViewDate] = useState(todayStr());
     const [expandedFoodCategoryKey, setExpandedFoodCategoryKey] = useState(null);
@@ -596,6 +602,7 @@
         const dailyRows = await api.getRange("DailyMetrics!A2:K10000");
         const foodRows = await api.getRange("Foods!A2:K10000");
         const categoryRows = await api.getRange("FoodCategories!A2:D10000");
+        const measurementRows = await api.getRange("Measurements!A2:F10000");
         const nutritionEntryRows = await api.getRange("NutritionEntries!A2:K10000");
         const loadedRoutines = routineRows.filter((r) => r[0]).map((r) => ({ id: r[0], name: r[1] || "", sortOrder: parseInt(r[2], 10) || 0, exercises: [] })).sort((a, b) => a.sortOrder - b.sortOrder);
         const byRoutine = {};
@@ -673,7 +680,17 @@
         })).sort((a, b) => a.sortOrder - b.sortOrder);
         setDailyMetrics(loadedDaily);
         setFoods(loadedFoods);
+        const nzM = (v) => v === "" || v === void 0 ? null : parseFloat(v);
+        const loadedMeasurements = measurementRows.filter((r) => r[0]).map((r) => ({
+          date: r[0],
+          waistNaval: nzM(r[1]),
+          waistBand: nzM(r[2]),
+          shoulders: nzM(r[3]),
+          chest: nzM(r[4]),
+          hips: nzM(r[5])
+        }));
         setCategories(loadedCategories);
+        setMeasurements(loadedMeasurements);
         setNutritionEntries(loadedNutritionEntries);
         setActiveRoutineId((prev) => {
           var _a;
@@ -872,6 +889,70 @@
       const def = METRIC_DEFS.find((m) => m.key === key);
       if (key === "sleep") return formatSleepHours(val);
       return `${val}${(def == null ? void 0 : def.unit) || ""}`;
+    }
+    const MEASUREMENT_KEYS = ["waistNaval", "waistBand", "shoulders", "chest", "hips"];
+    const measurementsSaveTimeout = useRef(null);
+    function persistMeasurements(next) {
+      if (measurementsSaveTimeout.current) clearTimeout(measurementsSaveTimeout.current);
+      measurementsSaveTimeout.current = setTimeout(async () => {
+        setSaveState("saving");
+        try {
+          const nz = (v) => v === null || v === void 0 ? "" : v;
+          const rows = next.slice().sort((a, b) => a.date.localeCompare(b.date)).map((m) => [m.date, nz(m.waistNaval), nz(m.waistBand), nz(m.shoulders), nz(m.chest), nz(m.hips)]);
+          await api.clearRange("Measurements!A2:F10000");
+          if (rows.length) await api.updateRange("Measurements!A2", rows);
+          setSaveState("saved");
+          setTimeout(() => setSaveState("idle"), 1200);
+        } catch (e) {
+          setSaveState("error");
+          setErrorMsg(String(e));
+        }
+      }, 400);
+    }
+    function saveMeasurementEntry(date, values) {
+      setMeasurements((prev) => {
+        const idx = prev.findIndex((m) => m.date === date);
+        let next = [...prev];
+        if (idx >= 0) {
+          const merged = { ...next[idx] };
+          for (const k of Object.keys(values)) if (values[k] !== null && !Number.isNaN(values[k])) merged[k] = values[k];
+          next[idx] = merged;
+        } else {
+          const base = { date, waistNaval: null, waistBand: null, shoulders: null, chest: null, hips: null };
+          for (const k of Object.keys(values)) if (values[k] !== null && !Number.isNaN(values[k])) base[k] = values[k];
+          next.push(base);
+        }
+        persistMeasurements(next);
+        return next;
+      });
+    }
+    function deleteMeasurementEntry(date) {
+      setMeasurements((prev) => {
+        const next = prev.filter((m) => m.date !== date);
+        persistMeasurements(next);
+        return next;
+      });
+      setMeasurementConfirmDelete(null);
+    }
+    function applyMeasurementDate(newDate) {
+      setMeasurementForm(() => {
+        const entry = measurements.find((m) => m.date === newDate);
+        const next = { date: newDate };
+        for (const k of MEASUREMENT_KEYS) next[k] = entry && entry[k] !== null && entry[k] !== void 0 ? String(entry[k]) : "";
+        return next;
+      });
+    }
+    function submitMeasurementForm() {
+      const values = {};
+      for (const k of MEASUREMENT_KEYS) {
+        const raw = measurementForm[k];
+        values[k] = raw === "" || raw === void 0 ? null : parseFloat(raw);
+      }
+      saveMeasurementEntry(measurementForm.date, values);
+      setMeasurementForm({ date: measurementForm.date, waistNaval: "", waistBand: "", shoulders: "", chest: "", hips: "" });
+    }
+    function computeRatioSeries(key2) {
+      return measurements.filter((m) => m.waistNaval !== null && m[key2] !== null && m[key2] !== 0).map((m) => ({ date: m.date, value: Math.round(m.waistNaval / m[key2] * 1000) / 1000 })).sort((a, b) => a.date.localeCompare(b.date));
     }
     function commitDailyForm(morningValues, nutritionValues) {
       saveDailyEntry(dailyForm.date, morningValues);
@@ -1373,7 +1454,23 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
         commitDailyForm,
         setPendingDailyOverwrite,
         applyMorningDate,
-        applyNutritionDate
+        applyNutritionDate,
+        measurements,
+        measurementForm,
+        setMeasurementForm,
+        measurementEditing,
+        setMeasurementEditing,
+        measurementConfirmDelete,
+        setMeasurementConfirmDelete,
+        measurementsExpanded,
+        setMeasurementsExpanded,
+        ratioChartRange,
+        setRatioChartRange,
+        applyMeasurementDate,
+        submitMeasurementForm,
+        saveMeasurementEntry,
+        deleteMeasurementEntry,
+        computeRatioSeries
       }
     ), view === "nutrition" && /* @__PURE__ */ React.createElement(
       NutritionView,
@@ -1629,7 +1726,23 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
       commitDailyForm,
       setPendingDailyOverwrite,
       applyMorningDate,
-      applyNutritionDate
+      applyNutritionDate,
+      measurements,
+      measurementForm,
+      setMeasurementForm,
+      measurementEditing,
+      setMeasurementEditing,
+      measurementConfirmDelete,
+      setMeasurementConfirmDelete,
+      measurementsExpanded,
+      setMeasurementsExpanded,
+      ratioChartRange,
+      setRatioChartRange,
+      applyMeasurementDate,
+      submitMeasurementForm,
+      saveMeasurementEntry,
+      deleteMeasurementEntry,
+      computeRatioSeries
     } = props;
     return /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, pendingDailyOverwrite && /* @__PURE__ */ React.createElement("div", { className: "bg-red-500/10 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm text-neutral-50 font-medium mb-1" }, "This will overwrite existing values"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400 mb-3" }, "These fields already have a value saved for that date. Saving will replace them."), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5 mb-3" }, pendingDailyOverwrite.conflicts.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "flex items-center justify-between text-sm bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-200" }, c.label, " ", /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500 text-xs" }, "(", fmtDateShort(dateToTs(c.date)), ")")), /* @__PURE__ */ React.createElement("span", { className: "font-mono text-xs" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500" }, c.oldDisplay), /* @__PURE__ */ React.createElement("span", { className: "text-neutral-400 mx-1" }, "\u2192"), /* @__PURE__ */ React.createElement("span", { className: "text-orange-500" }, c.newDisplay))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => commitDailyForm(pendingDailyOverwrite.morningValues, pendingDailyOverwrite.nutritionValues), className: "flex-1 py-2 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Overwrite"), /* @__PURE__ */ React.createElement("button", { onClick: () => setPendingDailyOverwrite(null), className: "flex-1 py-2 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Cancel"))), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-1" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "This morning"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement("button", { onClick: () => applyMorningDate(addDays(dailyForm.date, -1)), className: "p-1 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 })), /* @__PURE__ */ React.createElement("input", { type: "date", value: dailyForm.date, onChange: (e) => applyMorningDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => applyMorningDate(dailyForm.date === todayStr() ? dailyForm.date : addDays(dailyForm.date, 1)), disabled: dailyForm.date === todayStr(), className: `p-1 ${dailyForm.date === todayStr() ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 })))), /* @__PURE__ */ React.createElement("div", { className: "mb-3" }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Note (optional, applies to this day)"), /* @__PURE__ */ React.createElement(
       "input",
@@ -1657,7 +1770,70 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
         clearDailyValue,
         moveDailyValue
       }
-    )));
+    ))), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setMeasurementsExpanded((prev) => !prev) }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Body Measurements"), measurementsExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-400" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-400" })), measurementsExpanded && /* @__PURE__ */ React.createElement(MeasurementsSection, { measurements, measurementForm, setMeasurementForm, measurementEditing, setMeasurementEditing, measurementConfirmDelete, setMeasurementConfirmDelete, ratioChartRange, setRatioChartRange, applyMeasurementDate, submitMeasurementForm, saveMeasurementEntry, deleteMeasurementEntry, computeRatioSeries }));
+  }
+  function MeasurementsSection(props) {
+    const {
+      measurements, measurementForm, setMeasurementForm, measurementEditing, setMeasurementEditing,
+      measurementConfirmDelete, setMeasurementConfirmDelete, ratioChartRange, setRatioChartRange,
+      applyMeasurementDate, submitMeasurementForm, saveMeasurementEntry, deleteMeasurementEntry, computeRatioSeries
+    } = props;
+    const RANGE_DAYS = { "1W": 7, "1M": 30, "3M": 90, "6M": 180 };
+    const cutoffTs = Date.now() - RANGE_DAYS[ratioChartRange] * 24 * 60 * 60 * 1000;
+    const ratioDefs = [
+      { key: "hips", label: "Waist:Hip", color: "#f97316" },
+      { key: "shoulders", label: "Waist:Shoulder", color: "#22d3ee" },
+      { key: "chest", label: "Waist:Chest", color: "#a78bfa" }
+    ];
+    const ratioSeriesByKey = {};
+    ratioDefs.forEach((r) => {
+      ratioSeriesByKey[r.key] = computeRatioSeries(r.key);
+    });
+    const dateSet = /* @__PURE__ */ new Set();
+    ratioDefs.forEach((r) => {
+      ratioSeriesByKey[r.key].filter((p) => dateToTs(p.date) >= cutoffTs).forEach((p) => dateSet.add(p.date));
+    });
+    const chartData = Array.from(dateSet).sort().map((date) => {
+      const row = { date: fmtDateShort(dateToTs(date)) };
+      ratioDefs.forEach((r) => {
+        const pt = ratioSeriesByKey[r.key].find((p) => p.date === date);
+        if (pt) row[r.key] = pt.value;
+      });
+      return row;
+    });
+    const sortedMeasurements = measurements.slice().sort((a, b) => b.date.localeCompare(a.date));
+
+    return /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4 space-y-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-400" }, "Log a new reading"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement("button", { onClick: () => applyMeasurementDate(addDays(measurementForm.date, -1)), className: "p-1 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 })), /* @__PURE__ */ React.createElement("input", { type: "date", value: measurementForm.date, onChange: (e) => applyMeasurementDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => applyMeasurementDate(measurementForm.date === todayStr() ? measurementForm.date : addDays(measurementForm.date, 1)), disabled: measurementForm.date === todayStr(), className: `p-1 ${measurementForm.date === todayStr() ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 })))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, [
+      { key: "waistNaval", label: "Waist (Naval)" },
+      { key: "waistBand", label: "Waist (Band)" },
+      { key: "shoulders", label: "Shoulders" },
+      { key: "chest", label: "Chest" },
+      { key: "hips", label: "Hips (largest)" }
+    ].map((f) => /* @__PURE__ */ React.createElement("div", { key: f.key }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, f.label, " (in)"), /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", value: measurementForm[f.key], onChange: (e) => setMeasurementForm((prev) => ({ ...prev, [f.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })))), /* @__PURE__ */ React.createElement("button", { onClick: submitMeasurementForm, className: "w-full py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, "Save"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2" }, ratioDefs.map((r) => {
+      const series = ratioSeriesByKey[r.key];
+      const latest = series.length ? series[series.length - 1].value : null;
+      return /* @__PURE__ */ React.createElement(StatBox, { key: r.key, label: r.label, value: latest !== null ? latest.toFixed(2) : "\u2014" });
+    })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "flex gap-1.5 mb-2" }, Object.keys(RANGE_DAYS).map((r) => /* @__PURE__ */ React.createElement("button", { key: r, onClick: () => setRatioChartRange(r), className: `flex-1 py-1 rounded-md text-xs font-semibold ${ratioChartRange === r ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 border border-neutral-800 text-neutral-400"}` }, r))), chartData.length > 1 ? /* @__PURE__ */ React.createElement("div", { style: { height: 160 } }, /* @__PURE__ */ React.createElement(ResponsiveContainer, { width: "100%", height: "100%", minWidth: 0, minHeight: 0 }, /* @__PURE__ */ React.createElement(LineChart, { data: chartData, margin: { top: 8, right: 8, left: -20, bottom: 0 } }, /* @__PURE__ */ React.createElement(CartesianGrid, { strokeDasharray: "3 3", stroke: "#27272a" }), /* @__PURE__ */ React.createElement(XAxis, { dataKey: "date", stroke: "#71717a", fontSize: 10 }), /* @__PURE__ */ React.createElement(YAxis, { stroke: "#71717a", fontSize: 10, domain: ["auto", "auto"] }), /* @__PURE__ */ React.createElement(Tooltip, { contentStyle: { background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8, fontSize: 12 }, labelStyle: { color: "#e4e4e7" } }), /* @__PURE__ */ React.createElement(Legend, { wrapperStyle: { fontSize: 10, color: "#71717a" } }), ratioDefs.map((r) => /* @__PURE__ */ React.createElement(Line, { key: r.key, type: "monotone", dataKey: r.key, name: r.label, stroke: r.color, strokeWidth: 2, connectNulls: true, dot: { r: 2 } }))))) : /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500" }, "Log at least two readings to see a trend.")), sortedMeasurements.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "History"), sortedMeasurements.map((m) => /* @__PURE__ */ React.createElement(MeasurementHistoryRow, { key: m.date, m, isEditing: measurementEditing === m.date, isConfirming: measurementConfirmDelete === m.date, onEdit: () => setMeasurementEditing(m.date), onCancelEdit: () => setMeasurementEditing(null), onSave: (values) => { saveMeasurementEntry(m.date, values); setMeasurementEditing(null); }, onDelete: () => setMeasurementConfirmDelete(m.date), onConfirmDelete: () => deleteMeasurementEntry(m.date), onCancelDelete: () => setMeasurementConfirmDelete(null) }))));
+  }
+  function MeasurementHistoryRow({ m, isEditing, isConfirming, onEdit, onCancelEdit, onSave, onDelete, onConfirmDelete, onCancelDelete }) {
+    const [waistNaval, setWaistNaval] = useState(m.waistNaval !== null ? String(m.waistNaval) : "");
+    const [waistBand, setWaistBand] = useState(m.waistBand !== null ? String(m.waistBand) : "");
+    const [shoulders, setShoulders] = useState(m.shoulders !== null ? String(m.shoulders) : "");
+    const [chest, setChest] = useState(m.chest !== null ? String(m.chest) : "");
+    const [hips, setHips] = useState(m.hips !== null ? String(m.hips) : "");
+
+    if (isEditing) {
+      return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-orange-500 rounded-lg p-2.5 space-y-2", style: { borderWidth: 1 } }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400" }, fmtDateShort(dateToTs(m.date))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "number", value: waistNaval, onChange: (e) => setWaistNaval(e.target.value), placeholder: "Waist Naval", className: "bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: waistBand, onChange: (e) => setWaistBand(e.target.value), placeholder: "Waist Band", className: "bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: shoulders, onChange: (e) => setShoulders(e.target.value), placeholder: "Shoulders", className: "bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: chest, onChange: (e) => setChest(e.target.value), placeholder: "Chest", className: "bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" }), /* @__PURE__ */ React.createElement("input", { type: "number", value: hips, onChange: (e) => setHips(e.target.value), placeholder: "Hips", className: "bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-sm font-mono text-neutral-100" })), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => onSave({
+      waistNaval: waistNaval === "" ? null : parseFloat(waistNaval),
+      waistBand: waistBand === "" ? null : parseFloat(waistBand),
+      shoulders: shoulders === "" ? null : parseFloat(shoulders),
+      chest: chest === "" ? null : parseFloat(chest),
+      hips: hips === "" ? null : parseFloat(hips)
+    }), className: "flex-1 py-1.5 rounded-md bg-orange-500 text-neutral-950 text-sm font-medium flex items-center justify-center gap-1" }, /* @__PURE__ */ React.createElement(Check, { size: 14 }), " Save"), /* @__PURE__ */ React.createElement("button", { onClick: onCancelEdit, className: "flex-1 py-1.5 rounded-md bg-neutral-800 text-neutral-300 text-sm flex items-center justify-center gap-1" }, /* @__PURE__ */ React.createElement(X, { size: 14 }), " Cancel")));
+    }
+
+    const fmt = (v) => v === null || v === void 0 ? "\u2014" : v;
+    return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-400" }, fmtDateShort(dateToTs(m.date))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, isConfirming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: onConfirmDelete, className: "text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md" }, "Delete"), /* @__PURE__ */ React.createElement("button", { onClick: onCancelDelete, className: "text-neutral-400 text-xs px-2 py-1 bg-neutral-800 rounded-md" }, "Cancel")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: onEdit, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), /* @__PURE__ */ React.createElement("button", { onClick: onDelete, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(Trash2, { size: 13 }))))), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-300 font-mono mt-1" }, "Naval ", fmt(m.waistNaval), " \xB7 Band ", fmt(m.waistBand), " \xB7 Shoulders ", fmt(m.shoulders), " \xB7 Chest ", fmt(m.chest), " \xB7 Hips ", fmt(m.hips)));
   }
   function MetricCard({ def, stats, series, expanded, onToggle, dailyEditing, setDailyEditing, dailyConfirmDelete, setDailyConfirmDelete, saveDailyEntry, clearDailyValue, moveDailyValue }) {
     const [historyExpanded, setHistoryExpanded] = useState(false);
