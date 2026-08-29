@@ -355,6 +355,186 @@
     const avg = recent3.reduce((a, b) => a + b, 0) / recent3.length;
     return { pr, last, targetLow: Math.round(avg * 0.95), targetHigh: Math.round(avg * 1.1) };
   }
+
+  // ============================= COACH EXPORT =============================
+  // Pure function: takes plain data, returns a plain object. No React, no state
+  // reads, no side effects. JSON.stringify happens only at the UI/clipboard layer.
+  function buildCoachPacket({ endDate, rangeDays, dailyMetrics, nutritionEntries, foods, entries, routines, sessionOverrides, measurements }) {
+    const startDate = rangeDays > 1 ? addDays(endDate, -(rangeDays - 1)) : endDate;
+    const inRange = (d) => d >= startDate && d <= endDate;
+    const round2 = (v) => v === null || v === void 0 ? null : Math.round(v * 100) / 100;
+    const round3 = (v) => v === null || v === void 0 ? null : Math.round(v * 1000) / 1000;
+    function avgIgnoreNulls(arr) {
+      const vals = arr.filter((v) => v !== null && v !== void 0);
+      if (!vals.length) return null;
+      return round2(vals.reduce((a, b) => a + b, 0) / vals.length);
+    }
+
+    // ---- daily_metrics ----
+    const daily_metrics = dailyMetrics.filter((d) => inRange(d.date)).sort((a, b) => a.date.localeCompare(b.date)).map((d) => ({
+      date: d.date,
+      weight_lb: d.weight,
+      sleep_hours: d.sleep,
+      sleep_score: d.sleepScore,
+      readiness: d.readiness,
+      hrv_ms: d.hrv,
+      rhr_bpm: d.rhr,
+      steps: d.steps,
+      protein_g: d.protein,
+      calories_kcal: d.calories,
+      note: d.note || ""
+    }));
+
+    // ---- nutrition (NutritionEntries + Foods are authoritative; reuses the app's
+    // own computeFoodNutrition / computeDayNutritionTotals so rounding matches exactly) ----
+    const nutritionDates = Array.from(new Set(nutritionEntries.filter((e) => inRange(e.date)).map((e) => e.date))).sort();
+    const nutrition = nutritionDates.map((date) => {
+      const dayEntries = nutritionEntries.filter((e) => e.date === date);
+      const totals = computeDayNutritionTotals(dayEntries, foods);
+      const foodsOut = dayEntries.map((e) => {
+        if (e.foodId) {
+          const food = foods.find((f) => f.id === e.foodId);
+          if (!food) return null;
+          const n = computeFoodNutrition(food, e.amountGrams);
+          const displayAmount = food.defaultUnit === "oz" ? `${Math.round(e.amountGrams / OZ_TO_G * 10) / 10}oz` : `${Math.round(e.amountGrams)}g`;
+          return { name: food.name, amount_g: e.amountGrams, display_amount: displayAmount, protein_g: n.protein, calories_kcal: n.calories, fat_g: n.fat, carbs_g: n.carbs, note: e.note || "" };
+        }
+        return { name: e.adhocName || "", amount_g: null, display_amount: "", protein_g: e.adhocProtein || 0, calories_kcal: e.adhocCalories || 0, fat_g: e.adhocFat || 0, carbs_g: e.adhocCarbs || 0, note: e.note || "" };
+      }).filter(Boolean);
+      return { date, totals: { protein_g: totals.protein, calories_kcal: totals.calories, fat_g: totals.fat, carbs_g: totals.carbs }, foods: foodsOut };
+    });
+
+    // ---- workouts (grouped by session_id, not date+routine) ----
+    const routineById = {};
+    routines.forEach((r) => { routineById[r.id] = r; });
+    const exerciseById = {};
+    routines.forEach((r) => { r.exercises.forEach((ex) => { exerciseById[ex.id] = ex; }); });
+
+    const sessionsInRange = {};
+    entries.filter((e) => inRange(toDateStr(new Date(e.timestamp)))).forEach((e) => {
+      const sid = e.sessionId || "unknown";
+      if (!sessionsInRange[sid]) sessionsInRange[sid] = [];
+      sessionsInRange[sid].push(e);
+    });
+
+    const workouts = Object.keys(sessionsInRange).sort().map((sessionId) => {
+      const sessionEntries = [...sessionsInRange[sessionId]].sort((a, b) => a.timestamp - b.timestamp);
+      const routineId = sessionEntries[0].routineId;
+      const routine = routineById[routineId];
+      const date = toDateStr(new Date(sessionEntries[0].timestamp));
+
+      // Same SessionOverrides key format the app itself uses.
+      const overrideKey = `${new Date(`${date}T00:00:00`).toDateString()}|${routineId}`;
+      const override = sessionOverrides[overrideKey] || {};
+      const usedOverride = Boolean(override.start && override.finish);
+      const start_time = override.start ? inputTimeTo12h(override.start) : fmtTime(sessionEntries[0].timestamp);
+      const finish_time = override.finish ? inputTimeTo12h(override.finish) : fmtTime(sessionEntries[sessionEntries.length - 1].timestamp);
+
+      let duration_min = null;
+      if (usedOverride) {
+        const [sh, sm] = override.start.split(":").map(Number);
+        const [fh, fm] = override.finish.split(":").map(Number);
+        duration_min = fh * 60 + fm - (sh * 60 + sm);
+      } else if (sessionEntries.length > 1) {
+        duration_min = Math.round((sessionEntries[sessionEntries.length - 1].timestamp - sessionEntries[0].timestamp) / 6e4);
+      }
+
+      const byExercise = {};
+      sessionEntries.forEach((e) => {
+        if (!byExercise[e.exerciseId]) byExercise[e.exerciseId] = [];
+        byExercise[e.exerciseId].push(e);
+      });
+
+      const exercisesOut = Object.keys(byExercise).map((exerciseId) => {
+        const exMeta = exerciseById[exerciseId];
+        const exEntries = byExercise[exerciseId];
+        const unit = exMeta && exMeta.unit || "seconds";
+        const sets = exEntries.map((e) => ({ value: e.tut, band_id: e.band, band_label: bandById(e.band).label, note: e.note || "", timestamp: new Date(e.timestamp).toISOString() }));
+        const session_total = exEntries.reduce((sum, e) => sum + e.tut, 0);
+
+        // "Latest band" and PR/Last/Target use ALL-TIME entries for this exercise
+        // (same convention the app itself uses on Log/Trends — a PR is a lifetime
+        // achievement, not scoped to the export window).
+        const allTimeForEx = entries.filter((e) => e.exerciseId === exerciseId).sort((a, b) => b.timestamp - a.timestamp);
+        const latestBand = allTimeForEx.length ? allTimeForEx[0].band : exEntries[0].band;
+        const bandEntries = entries.filter((e) => e.exerciseId === exerciseId && e.band === latestBand);
+        const stats = computeStats(bandEntries);
+
+        return {
+          exercise_name: exMeta ? exMeta.name : "Unknown",
+          unit,
+          sets,
+          session_total,
+          set_count: exEntries.length,
+          latest_band: latestBand,
+          band_specific_stats: { pr: stats.pr, last: stats.last, target_low: stats.targetLow, target_high: stats.targetHigh }
+        };
+      });
+
+      return { date, session_id: sessionId, routine_name: routine ? routine.name : "Unknown", start_time, finish_time, duration_min, exercises: exercisesOut };
+    });
+
+    // ---- measurements ----
+    const measurementsOut = measurements.filter((m) => inRange(m.date)).sort((a, b) => a.date.localeCompare(b.date)).map((m) => {
+      const wn = m.waistNaval;
+      const waist_to_hip = wn !== null && m.hips ? round3(wn / m.hips) : null;
+      const shoulder_to_waist = wn !== null && wn !== 0 && m.shoulders ? round3(m.shoulders / wn) : null;
+      const waist_to_chest = wn !== null && m.chest ? round3(wn / m.chest) : null;
+      return { date: m.date, waist_navel_in: m.waistNaval, waist_band_in: m.waistBand, shoulders_in: m.shoulders, chest_in: m.chest, hips_in: m.hips, ratios: { waist_to_hip, shoulder_to_waist, waist_to_chest } };
+    });
+
+    // ---- summary_stats ----
+    // weight_avg_7_observations mirrors computeMetricStats('weight')'s avg7 exactly:
+    // the last 7 *available* readings across full history, not 7 calendar days,
+    // and not scoped to the export period (same as what the app itself shows).
+    const fullWeightSeries = dailyMetrics.filter((d) => d.weight !== null && d.weight !== void 0).sort((a, b) => a.date.localeCompare(b.date));
+    const weight_avg_7_observations = fullWeightSeries.length ? round2(fullWeightSeries.slice(-7).reduce((a, b) => a + b.weight, 0) / Math.min(7, fullWeightSeries.length)) : null;
+
+    const periodWeights = daily_metrics.map((d) => d.weight_lb).filter((v) => v !== null && v !== void 0);
+    const weight_change_period_lb = periodWeights.length >= 2 ? round2(periodWeights[periodWeights.length - 1] - periodWeights[0]) : null;
+
+    const summary_stats = {
+      weight_avg_7_observations,
+      weight_change_period_lb,
+      avg_sleep_hours: avgIgnoreNulls(daily_metrics.map((d) => d.sleep_hours)),
+      avg_hrv_ms: avgIgnoreNulls(daily_metrics.map((d) => d.hrv_ms)),
+      avg_rhr_bpm: avgIgnoreNulls(daily_metrics.map((d) => d.rhr_bpm)),
+      avg_steps: avgIgnoreNulls(daily_metrics.map((d) => d.steps)),
+      avg_protein_g: avgIgnoreNulls(daily_metrics.map((d) => d.protein_g)),
+      avg_calories_kcal: avgIgnoreNulls(daily_metrics.map((d) => d.calories_kcal))
+    };
+
+    return {
+      schema_version: "1.0",
+      generated_at: (/* @__PURE__ */ new Date()).toISOString(),
+      period: { type: rangeDays > 1 ? "7day" : "day", start_date: startDate, end_date: endDate },
+      daily_metrics,
+      nutrition,
+      workouts,
+      measurements: measurementsOut,
+      summary_stats
+    };
+  }
+  function buildCoachHumanSummary(packet) {
+    const lines = [];
+    lines.push(`X3LOG summary: ${packet.period.start_date}${packet.period.start_date !== packet.period.end_date ? " to " + packet.period.end_date : ""}`);
+    if (packet.summary_stats.weight_avg_7_observations !== null) lines.push(`Weight: ${packet.summary_stats.weight_avg_7_observations}lb avg (last 7 readings)${packet.summary_stats.weight_change_period_lb !== null ? `, ${packet.summary_stats.weight_change_period_lb > 0 ? "+" : ""}${packet.summary_stats.weight_change_period_lb}lb this period` : ""}`);
+    if (packet.summary_stats.avg_sleep_hours !== null) lines.push(`Sleep: ${packet.summary_stats.avg_sleep_hours}hr avg`);
+    if (packet.summary_stats.avg_hrv_ms !== null) lines.push(`HRV: ${packet.summary_stats.avg_hrv_ms}ms avg`);
+    if (packet.summary_stats.avg_rhr_bpm !== null) lines.push(`RHR: ${packet.summary_stats.avg_rhr_bpm}bpm avg`);
+    if (packet.summary_stats.avg_protein_g !== null) lines.push(`Protein: ${packet.summary_stats.avg_protein_g}g/day avg`);
+    if (packet.summary_stats.avg_calories_kcal !== null) lines.push(`Calories: ${packet.summary_stats.avg_calories_kcal}kcal/day avg`);
+    lines.push(`Workouts logged: ${packet.workouts.length}`);
+    packet.workouts.forEach((w) => {
+      const exSummary = w.exercises.map((ex) => `${ex.exercise_name} ${ex.session_total}${ex.unit === "reps" ? "reps" : "s"} (${ex.set_count} sets, ${ex.latest_band})`).join("; ");
+      lines.push(`  ${w.date} ${w.routine_name}: ${exSummary}`);
+    });
+    if (packet.measurements.length) {
+      const latest = packet.measurements[packet.measurements.length - 1];
+      lines.push(`Latest measurements (${latest.date}): Waist ${latest.waist_navel_in}in, Hip ratio ${latest.ratios.waist_to_hip}, Shoulder:Waist ${latest.ratios.shoulder_to_waist}`);
+    }
+    return lines.join("\n");
+  }
   function parseSleepInput(raw) {
     if (raw === "" || raw === void 0 || raw === null) return null;
     const str = String(raw).trim();
@@ -462,6 +642,7 @@
 
 
     const [ratioChartRange, setRatioChartRange] = useState("3M");
+    const [coachExportRange, setCoachExportRange] = useState("day");
     const [nutritionEntries, setNutritionEntries] = useState([]);
     const [nutritionViewDate, setNutritionViewDate] = useState(todayStr());
     const [expandedFoodCategoryKey, setExpandedFoodCategoryKey] = useState(null);
@@ -1457,7 +1638,17 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
         submitMeasurementForm,
         saveMeasurementEntry,
         deleteMeasurementEntry,
-        computeRatioSeries
+        computeRatioSeries,
+        coachExportRange,
+        setCoachExportRange,
+        copyTextToClipboard,
+        copiedFlash,
+        entries,
+        routines,
+        sessionOverrides,
+        foods,
+        nutritionEntries,
+        dailyMetrics
       }
     ), view === "nutrition" && /* @__PURE__ */ React.createElement(
       NutritionView,
@@ -1727,7 +1918,17 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
       submitMeasurementForm,
       saveMeasurementEntry,
       deleteMeasurementEntry,
-      computeRatioSeries
+      computeRatioSeries,
+      coachExportRange,
+      setCoachExportRange,
+      copyTextToClipboard,
+      copiedFlash,
+      entries,
+      routines,
+      sessionOverrides,
+      foods,
+      nutritionEntries,
+      dailyMetrics
     } = props;
     return /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, pendingDailyOverwrite && /* @__PURE__ */ React.createElement("div", { className: "bg-red-500/10 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm text-neutral-50 font-medium mb-1" }, "This will overwrite existing values"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400 mb-3" }, "These fields already have a value saved for that date. Saving will replace them."), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5 mb-3" }, pendingDailyOverwrite.conflicts.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "flex items-center justify-between text-sm bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-200" }, c.label, " ", /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500 text-xs" }, "(", fmtDateShort(dateToTs(c.date)), ")")), /* @__PURE__ */ React.createElement("span", { className: "font-mono text-xs" }, /* @__PURE__ */ React.createElement("span", { className: "text-neutral-500" }, c.oldDisplay), /* @__PURE__ */ React.createElement("span", { className: "text-neutral-400 mx-1" }, "\u2192"), /* @__PURE__ */ React.createElement("span", { className: "text-orange-500" }, c.newDisplay))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => commitDailyForm(pendingDailyOverwrite.morningValues, pendingDailyOverwrite.nutritionValues), className: "flex-1 py-2 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Overwrite"), /* @__PURE__ */ React.createElement("button", { onClick: () => setPendingDailyOverwrite(null), className: "flex-1 py-2 rounded-lg bg-neutral-800 text-neutral-200 text-sm font-semibold" }, "Cancel"))), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-1" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "This morning"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement("button", { onClick: () => applyMorningDate(addDays(dailyForm.date, -1)), className: "p-1 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 })), /* @__PURE__ */ React.createElement("input", { type: "date", value: dailyForm.date, onChange: (e) => applyMorningDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => applyMorningDate(dailyForm.date === todayStr() ? dailyForm.date : addDays(dailyForm.date, 1)), disabled: dailyForm.date === todayStr(), className: `p-1 ${dailyForm.date === todayStr() ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 })))), /* @__PURE__ */ React.createElement("div", { className: "mb-3" }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, "Note (optional, applies to this day)"), /* @__PURE__ */ React.createElement(
       "input",
@@ -1755,7 +1956,24 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
         clearDailyValue,
         moveDailyValue
       }
-    )), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setExpandedMetricKey((prev) => prev === "measurements" ? null : "measurements") }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Body Measurements"), expandedMetricKey === "measurements" ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-400" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-400" })), expandedMetricKey === "measurements" && /* @__PURE__ */ React.createElement(MeasurementsSection, { measurements, measurementForm, setMeasurementForm, measurementEditing, setMeasurementEditing, measurementConfirmDelete, setMeasurementConfirmDelete, ratioChartRange, setRatioChartRange, applyMeasurementDate, submitMeasurementForm, saveMeasurementEntry, deleteMeasurementEntry, computeRatioSeries })));
+    )), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setExpandedMetricKey((prev) => prev === "measurements" ? null : "measurements") }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Body Measurements"), expandedMetricKey === "measurements" ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-400" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-400" })), expandedMetricKey === "measurements" && /* @__PURE__ */ React.createElement(MeasurementsSection, { measurements, measurementForm, setMeasurementForm, measurementEditing, setMeasurementEditing, measurementConfirmDelete, setMeasurementConfirmDelete, ratioChartRange, setRatioChartRange, applyMeasurementDate, submitMeasurementForm, saveMeasurementEntry, deleteMeasurementEntry, computeRatioSeries })), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex items-center justify-between px-4 py-3", onClick: () => setExpandedMetricKey((prev) => prev === "coachExport" ? null : "coachExport") }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Coach Export"), expandedMetricKey === "coachExport" ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 18, className: "text-neutral-400" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, className: "text-neutral-400" })), expandedMetricKey === "coachExport" && /* @__PURE__ */ React.createElement(CoachExportSection, { coachExportRange, setCoachExportRange, copyTextToClipboard, copiedFlash, dailyForm, entries, routines, sessionOverrides, foods, nutritionEntries, dailyMetrics, measurements })));
+  }
+  function CoachExportSection(props) {
+    const { coachExportRange, setCoachExportRange, copyTextToClipboard, copiedFlash, dailyForm, entries, routines, sessionOverrides, foods, nutritionEntries, dailyMetrics, measurements } = props;
+    const packet = buildCoachPacket({
+      endDate: dailyForm.date,
+      rangeDays: coachExportRange === "7day" ? 7 : 1,
+      dailyMetrics,
+      nutritionEntries,
+      foods,
+      entries,
+      routines,
+      sessionOverrides,
+      measurements
+    });
+    const jsonText = JSON.stringify(packet, null, 2);
+    const humanText = buildCoachHumanSummary(packet);
+    return /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4 space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setCoachExportRange("day"), className: `flex-1 py-2 rounded-lg text-xs font-semibold ${coachExportRange === "day" ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 border border-neutral-800 text-neutral-400"}` }, "Day"), /* @__PURE__ */ React.createElement("button", { onClick: () => setCoachExportRange("7day"), className: `flex-1 py-2 rounded-lg text-xs font-semibold ${coachExportRange === "7day" ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 border border-neutral-800 text-neutral-400"}` }, "7 Days")), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400" }, packet.period.start_date === packet.period.end_date ? packet.period.start_date : `${packet.period.start_date} \u2192 ${packet.period.end_date}`, " \u2014 ", packet.workouts.length, " workout", packet.workouts.length === 1 ? "" : "s", ", ", packet.nutrition.length, " nutrition day", packet.nutrition.length === 1 ? "" : "s", ", ", packet.measurements.length, " measurement", packet.measurements.length === 1 ? "" : "s"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => copyTextToClipboard("coach-json", jsonText), className: "flex-1 py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, copiedFlash === "coach-json" ? "Copied!" : "Copy JSON"), /* @__PURE__ */ React.createElement("button", { onClick: () => copyTextToClipboard("coach-summary", humanText), className: "flex-1 py-2.5 rounded-lg bg-neutral-800 text-neutral-200 font-semibold text-sm" }, copiedFlash === "coach-summary" ? "Copied!" : "Copy Summary")), /* @__PURE__ */ React.createElement("pre", { className: "text-[10px] text-neutral-500 whitespace-pre-wrap font-mono leading-relaxed max-h-48 overflow-y-auto bg-neutral-950 border border-neutral-800 rounded-lg p-2" }, jsonText));
   }
   function MeasurementsSection(props) {
     const {
