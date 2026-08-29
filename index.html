@@ -370,7 +370,7 @@
       return round2(vals.reduce((a, b) => a + b, 0) / vals.length);
     }
 
-    // ---- daily_metrics ----
+    // ---- daily_metrics (raw stored values — kept for reference, NOT authoritative for nutrition) ----
     const daily_metrics = dailyMetrics.filter((d) => inRange(d.date)).sort((a, b) => a.date.localeCompare(b.date)).map((d) => ({
       date: d.date,
       weight_lb: d.weight,
@@ -403,12 +403,42 @@
       }).filter(Boolean);
       return { date, totals: { protein_g: totals.protein, calories_kcal: totals.calories, fat_g: totals.fat, carbs_g: totals.carbs }, foods: foodsOut };
     });
+    const nutritionByDate = {};
+    nutrition.forEach((n) => { nutritionByDate[n.date] = n.totals; });
+
+    // ---- data_quality: nutrition vs. DailyMetrics mismatches (diagnostic only —
+    // never rewrites DailyMetrics) ----
+    const nutrition_daily_metric_mismatches = [];
+    daily_metrics.forEach((d) => {
+      const nTotals = nutritionByDate[d.date];
+      if (!nTotals) return;
+      if (d.protein_g === null && d.calories_kcal === null) return;
+      const proteinBreach = d.protein_g !== null && Math.abs(d.protein_g - nTotals.protein_g) > 0.1;
+      const caloriesBreach = d.calories_kcal !== null && Math.abs(d.calories_kcal - nTotals.calories_kcal) > 1;
+      if (proteinBreach || caloriesBreach) {
+        nutrition_daily_metric_mismatches.push({
+          date: d.date,
+          daily_metrics_protein_g: d.protein_g,
+          nutrition_protein_g: nTotals.protein_g,
+          daily_metrics_calories_kcal: d.calories_kcal,
+          nutrition_calories_kcal: nTotals.calories_kcal
+        });
+      }
+    });
 
     // ---- workouts (grouped by session_id, not date+routine) ----
     const routineById = {};
     routines.forEach((r) => { routineById[r.id] = r; });
     const exerciseById = {};
     routines.forEach((r) => { r.exercises.forEach((ex) => { exerciseById[ex.id] = ex; }); });
+
+    const unmappedBandIds = /* @__PURE__ */ new Set();
+    function bandLabelForExport(bandId) {
+      const known = BANDS.find((b) => b.id === bandId);
+      if (known) return known.label;
+      if (bandId) unmappedBandIds.add(bandId);
+      return "Unknown";
+    }
 
     const sessionsInRange = {};
     entries.filter((e) => inRange(toDateStr(new Date(e.timestamp)))).forEach((e) => {
@@ -429,6 +459,8 @@
       const usedOverride = Boolean(override.start && override.finish);
       const start_time = override.start ? inputTimeTo12h(override.start) : fmtTime(sessionEntries[0].timestamp);
       const finish_time = override.finish ? inputTimeTo12h(override.finish) : fmtTime(sessionEntries[sessionEntries.length - 1].timestamp);
+      const time_source = usedOverride ? "session_override" : "entry_timestamps";
+      const duration_is_estimate = !usedOverride;
 
       let duration_min = null;
       if (usedOverride) {
@@ -449,7 +481,7 @@
         const exMeta = exerciseById[exerciseId];
         const exEntries = byExercise[exerciseId];
         const unit = exMeta && exMeta.unit || "seconds";
-        const sets = exEntries.map((e) => ({ value: e.tut, band_id: e.band, band_label: bandById(e.band).label, note: e.note || "", timestamp: new Date(e.timestamp).toISOString() }));
+        const sets = exEntries.map((e) => ({ value: e.tut, band_id: e.band, band_label: bandLabelForExport(e.band), note: e.note || "", timestamp: new Date(e.timestamp).toISOString() }));
         const session_total = exEntries.reduce((sum, e) => sum + e.tut, 0);
 
         // "Latest band" and PR/Last/Target use ALL-TIME entries for this exercise
@@ -471,7 +503,7 @@
         };
       });
 
-      return { date, session_id: sessionId, routine_name: routine ? routine.name : "Unknown", start_time, finish_time, duration_min, exercises: exercisesOut };
+      return { date, session_id: sessionId, routine_name: routine ? routine.name : "Unknown", start_time, finish_time, time_source, duration_is_estimate, duration_min, exercises: exercisesOut };
     });
 
     // ---- measurements ----
@@ -483,51 +515,65 @@
       return { date: m.date, waist_navel_in: m.waistNaval, waist_band_in: m.waistBand, shoulders_in: m.shoulders, chest_in: m.chest, hips_in: m.hips, ratios: { waist_to_hip, shoulder_to_waist, waist_to_chest } };
     });
 
-    // ---- summary_stats ----
-    // weight_avg_7_observations mirrors computeMetricStats('weight')'s avg7 exactly:
-    // the last 7 *available* readings across full history, not 7 calendar days,
-    // and not scoped to the export period (same as what the app itself shows).
+    // ---- summary_stats: split into period (scoped to the export window, nutrition
+    // averages sourced from the authoritative NutritionEntries/Foods totals, not
+    // DailyMetrics) and trailing (whole-history stats independent of the window) ----
     const fullWeightSeries = dailyMetrics.filter((d) => d.weight !== null && d.weight !== void 0).sort((a, b) => a.date.localeCompare(b.date));
-    const weight_avg_7_observations = fullWeightSeries.length ? round2(fullWeightSeries.slice(-7).reduce((a, b) => a + b.weight, 0) / Math.min(7, fullWeightSeries.length)) : null;
+    const weight_avg_7_observations_lb = fullWeightSeries.length ? round2(fullWeightSeries.slice(-7).reduce((a, b) => a + b.weight, 0) / Math.min(7, fullWeightSeries.length)) : null;
 
     const periodWeights = daily_metrics.map((d) => d.weight_lb).filter((v) => v !== null && v !== void 0);
-    const weight_change_period_lb = periodWeights.length >= 2 ? round2(periodWeights[periodWeights.length - 1] - periodWeights[0]) : null;
+    const weight_change_lb = periodWeights.length >= 2 ? round2(periodWeights[periodWeights.length - 1] - periodWeights[0]) : null;
 
     const summary_stats = {
-      weight_avg_7_observations,
-      weight_change_period_lb,
-      avg_sleep_hours: avgIgnoreNulls(daily_metrics.map((d) => d.sleep_hours)),
-      avg_hrv_ms: avgIgnoreNulls(daily_metrics.map((d) => d.hrv_ms)),
-      avg_rhr_bpm: avgIgnoreNulls(daily_metrics.map((d) => d.rhr_bpm)),
-      avg_steps: avgIgnoreNulls(daily_metrics.map((d) => d.steps)),
-      avg_protein_g: avgIgnoreNulls(daily_metrics.map((d) => d.protein_g)),
-      avg_calories_kcal: avgIgnoreNulls(daily_metrics.map((d) => d.calories_kcal))
+      period: {
+        weight_change_lb,
+        avg_sleep_hours: avgIgnoreNulls(daily_metrics.map((d) => d.sleep_hours)),
+        avg_hrv_ms: avgIgnoreNulls(daily_metrics.map((d) => d.hrv_ms)),
+        avg_rhr_bpm: avgIgnoreNulls(daily_metrics.map((d) => d.rhr_bpm)),
+        avg_steps: avgIgnoreNulls(daily_metrics.map((d) => d.steps)),
+        avg_protein_g: avgIgnoreNulls(nutrition.map((n) => n.totals.protein_g)),
+        avg_calories_kcal: avgIgnoreNulls(nutrition.map((n) => n.totals.calories_kcal)),
+        avg_fat_g: avgIgnoreNulls(nutrition.map((n) => n.totals.fat_g)),
+        avg_carbs_g: avgIgnoreNulls(nutrition.map((n) => n.totals.carbs_g))
+      },
+      trailing: {
+        weight_avg_7_observations_lb
+      }
     };
 
     return {
-      schema_version: "1.0",
+      schema_version: "1.1",
       generated_at: (/* @__PURE__ */ new Date()).toISOString(),
       period: { type: rangeDays > 1 ? "7day" : "day", start_date: startDate, end_date: endDate },
       daily_metrics,
       nutrition,
       workouts,
       measurements: measurementsOut,
-      summary_stats
+      summary_stats,
+      data_quality: {
+        nutrition_daily_metric_mismatches,
+        unmapped_band_ids: Array.from(unmappedBandIds)
+      }
     };
   }
-  function buildCoachHumanSummary(packet) {
+  
+function buildCoachHumanSummary(packet) {
     const lines = [];
+    const period = packet.summary_stats.period;
+    const trailing = packet.summary_stats.trailing;
     lines.push(`X3LOG summary: ${packet.period.start_date}${packet.period.start_date !== packet.period.end_date ? " to " + packet.period.end_date : ""}`);
-    if (packet.summary_stats.weight_avg_7_observations !== null) lines.push(`Weight: ${packet.summary_stats.weight_avg_7_observations}lb avg (last 7 readings)${packet.summary_stats.weight_change_period_lb !== null ? `, ${packet.summary_stats.weight_change_period_lb > 0 ? "+" : ""}${packet.summary_stats.weight_change_period_lb}lb this period` : ""}`);
-    if (packet.summary_stats.avg_sleep_hours !== null) lines.push(`Sleep: ${packet.summary_stats.avg_sleep_hours}hr avg`);
-    if (packet.summary_stats.avg_hrv_ms !== null) lines.push(`HRV: ${packet.summary_stats.avg_hrv_ms}ms avg`);
-    if (packet.summary_stats.avg_rhr_bpm !== null) lines.push(`RHR: ${packet.summary_stats.avg_rhr_bpm}bpm avg`);
-    if (packet.summary_stats.avg_protein_g !== null) lines.push(`Protein: ${packet.summary_stats.avg_protein_g}g/day avg`);
-    if (packet.summary_stats.avg_calories_kcal !== null) lines.push(`Calories: ${packet.summary_stats.avg_calories_kcal}kcal/day avg`);
+    if (trailing.weight_avg_7_observations_lb !== null) lines.push(`Weight: ${trailing.weight_avg_7_observations_lb}lb avg (last 7 readings)${period.weight_change_lb !== null ? `, ${period.weight_change_lb > 0 ? "+" : ""}${period.weight_change_lb}lb this period` : ""}`);
+    if (period.avg_sleep_hours !== null) lines.push(`Sleep: ${period.avg_sleep_hours}hr avg`);
+    if (period.avg_hrv_ms !== null) lines.push(`HRV: ${period.avg_hrv_ms}ms avg`);
+    if (period.avg_rhr_bpm !== null) lines.push(`RHR: ${period.avg_rhr_bpm}bpm avg`);
+    if (period.avg_protein_g !== null) lines.push(`Protein: ${period.avg_protein_g}g/day avg`);
+    if (period.avg_calories_kcal !== null) lines.push(`Calories: ${period.avg_calories_kcal}kcal/day avg`);
+    if (packet.data_quality.nutrition_daily_metric_mismatches.length) lines.push(`\u26A0 ${packet.data_quality.nutrition_daily_metric_mismatches.length} date(s) where DailyMetrics protein/calories do not match logged nutrition`);
+    if (packet.data_quality.unmapped_band_ids.length) lines.push(`\u26A0 Unrecognized band IDs in data: ${packet.data_quality.unmapped_band_ids.join(", ")}`);
     lines.push(`Workouts logged: ${packet.workouts.length}`);
     packet.workouts.forEach((w) => {
       const exSummary = w.exercises.map((ex) => `${ex.exercise_name} ${ex.session_total}${ex.unit === "reps" ? "reps" : "s"} (${ex.set_count} sets, ${ex.latest_band})`).join("; ");
-      lines.push(`  ${w.date} ${w.routine_name}: ${exSummary}`);
+      lines.push(`  ${w.date} ${w.routine_name}${w.duration_is_estimate ? " (est. duration)" : ""}: ${exSummary}`);
     });
     if (packet.measurements.length) {
       const latest = packet.measurements[packet.measurements.length - 1];
