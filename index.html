@@ -557,31 +557,7 @@
     };
   }
   
-function buildCoachHumanSummary(packet) {
-    const lines = [];
-    const period = packet.summary_stats.period;
-    const trailing = packet.summary_stats.trailing;
-    lines.push(`X3LOG summary: ${packet.period.start_date}${packet.period.start_date !== packet.period.end_date ? " to " + packet.period.end_date : ""}`);
-    if (trailing.weight_avg_7_observations_lb !== null) lines.push(`Weight: ${trailing.weight_avg_7_observations_lb}lb avg (last 7 readings)${period.weight_change_lb !== null ? `, ${period.weight_change_lb > 0 ? "+" : ""}${period.weight_change_lb}lb this period` : ""}`);
-    if (period.avg_sleep_hours !== null) lines.push(`Sleep: ${period.avg_sleep_hours}hr avg`);
-    if (period.avg_hrv_ms !== null) lines.push(`HRV: ${period.avg_hrv_ms}ms avg`);
-    if (period.avg_rhr_bpm !== null) lines.push(`RHR: ${period.avg_rhr_bpm}bpm avg`);
-    if (period.avg_protein_g !== null) lines.push(`Protein: ${period.avg_protein_g}g/day avg`);
-    if (period.avg_calories_kcal !== null) lines.push(`Calories: ${period.avg_calories_kcal}kcal/day avg`);
-    if (packet.data_quality.nutrition_daily_metric_mismatches.length) lines.push(`\u26A0 ${packet.data_quality.nutrition_daily_metric_mismatches.length} date(s) where DailyMetrics protein/calories do not match logged nutrition`);
-    if (packet.data_quality.unmapped_band_ids.length) lines.push(`\u26A0 Unrecognized band IDs in data: ${packet.data_quality.unmapped_band_ids.join(", ")}`);
-    lines.push(`Workouts logged: ${packet.workouts.length}`);
-    packet.workouts.forEach((w) => {
-      const exSummary = w.exercises.map((ex) => `${ex.exercise_name} ${ex.session_total}${ex.unit === "reps" ? "reps" : "s"} (${ex.set_count} sets, ${ex.latest_band})`).join("; ");
-      lines.push(`  ${w.date} ${w.routine_name}${w.duration_is_estimate ? " (est. duration)" : ""}: ${exSummary}`);
-    });
-    if (packet.measurements.length) {
-      const latest = packet.measurements[packet.measurements.length - 1];
-      lines.push(`Latest measurements (${latest.date}): Waist ${latest.waist_navel_in}in, Hip ratio ${latest.ratios.waist_to_hip}, Shoulder:Waist ${latest.ratios.shoulder_to_waist}`);
-    }
-    return lines.join("\n");
-  }
-  function parseSleepInput(raw) {
+function parseSleepInput(raw) {
     if (raw === "" || raw === void 0 || raw === null) return null;
     const str = String(raw).trim();
     if (!str) return null;
@@ -2038,8 +2014,7 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
       measurements
     });
     const jsonText = JSON.stringify(packet, null, 2);
-    const humanText = buildCoachHumanSummary(packet);
-    return /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4 space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setCoachExportRange("day"), className: `flex-1 py-2 rounded-lg text-xs font-semibold ${coachExportRange === "day" ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 border border-neutral-800 text-neutral-400"}` }, "Day"), /* @__PURE__ */ React.createElement("button", { onClick: () => setCoachExportRange("7day"), className: `flex-1 py-2 rounded-lg text-xs font-semibold ${coachExportRange === "7day" ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 border border-neutral-800 text-neutral-400"}` }, "7 Days")), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400" }, packet.period.start_date === packet.period.end_date ? packet.period.start_date : `${packet.period.start_date} \u2192 ${packet.period.end_date}`, " \u2014 ", packet.workouts.length, " workout", packet.workouts.length === 1 ? "" : "s", ", ", packet.nutrition.length, " nutrition day", packet.nutrition.length === 1 ? "" : "s", ", ", packet.measurements.length, " measurement", packet.measurements.length === 1 ? "" : "s"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => { copyTextToClipboard("coach-json", jsonText); refreshCoachExport(); }, className: "flex-1 py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, copiedFlash === "coach-json" ? "Copied!" : "Copy JSON"), /* @__PURE__ */ React.createElement("button", { onClick: () => copyTextToClipboard("coach-summary", humanText), className: "flex-1 py-2.5 rounded-lg bg-neutral-800 text-neutral-200 font-semibold text-sm" }, copiedFlash === "coach-summary" ? "Copied!" : "Copy Summary")), /* @__PURE__ */ React.createElement("pre", { className: "text-[10px] text-neutral-500 whitespace-pre-wrap font-mono leading-relaxed max-h-48 overflow-y-auto bg-neutral-950 border border-neutral-800 rounded-lg p-2" }, jsonText), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-neutral-600" }, "Copy JSON also syncs the Day + 7-Day packets to CoachExport for ChatGPT."));
+    return /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4 space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setCoachExportRange("day"), className: `flex-1 py-2 rounded-lg text-xs font-semibold ${coachExportRange === "day" ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 border border-neutral-800 text-neutral-400"}` }, "Day"), /* @__PURE__ */ React.createElement("button", { onClick: () => setCoachExportRange("7day"), className: `flex-1 py-2 rounded-lg text-xs font-semibold ${coachExportRange === "7day" ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 border border-neutral-800 text-neutral-400"}` }, "7 Days")), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400" }, packet.period.start_date === packet.period.end_date ? packet.period.start_date : `${packet.period.start_date} \u2192 ${packet.period.end_date}`, " \u2014 ", packet.workouts.length, " workout", packet.workouts.length === 1 ? "" : "s", ", ", packet.nutrition.length, " nutrition day", packet.nutrition.length === 1 ? "" : "s", ", ", packet.measurements.length, " measurement", packet.measurements.length === 1 ? "" : "s"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => { copyTextToClipboard("coach-json", jsonText); refreshCoachExport(); }, className: "flex-1 py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, copiedFlash === "coach-json" ? "Copied!" : "Copy JSON & Sync")), /* @__PURE__ */ React.createElement("pre", { className: "text-[10px] text-neutral-500 whitespace-pre-wrap font-mono leading-relaxed max-h-48 overflow-y-auto bg-neutral-950 border border-neutral-800 rounded-lg p-2" }, jsonText), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-neutral-600" }, "Copy JSON also syncs the Day + 7-Day packets to CoachExport for ChatGPT."));
   }
   function MeasurementsSection(props) {
     const {
