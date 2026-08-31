@@ -218,6 +218,8 @@
     { key: "readiness", label: "Readiness", unit: "", decimals: 0, step: "1", group: "morning" },
     { key: "hrv", label: "HRV", unit: "ms", decimals: 0, step: "1", group: "morning" },
     { key: "rhr", label: "RHR", unit: "bpm", decimals: 0, step: "1", group: "morning" },
+    { key: "sleepHrLow", label: "Sleep HR Low", unit: "bpm", decimals: 0, step: "1", group: "morning" },
+    { key: "sleepHrAvg", label: "Sleep HR Avg", unit: "bpm", decimals: 0, step: "1", group: "morning" },
     { key: "steps", label: "Steps", unit: "", decimals: 0, step: "1", group: "nutrition" },
     { key: "protein", label: "Protein", unit: "g", decimals: 0, step: "1", group: "nutrition" },
     { key: "calories", label: "Calories", unit: "kcal", decimals: 0, step: "1", group: "nutrition" }
@@ -640,7 +642,9 @@ function parseSleepInput(raw) {
       sleepScore: "",
       readiness: "",
       steps: "",
-      note: ""
+      note: "",
+      sleepHrLow: "",
+      sleepHrAvg: ""
     });
     const [expandedMetricKey, setExpandedMetricKey] = useState(null);
     const [dailyEditing, setDailyEditing] = useState(null);
@@ -787,7 +791,7 @@ function parseSleepInput(raw) {
         const exerciseRows = await api.getRange("Exercises!A2:F10000");
         const entryRows = await api.getRange("Entries!A2:H10000");
         const overrideRows = await api.getRange("SessionOverrides!A2:D10000");
-        const dailyRows = await api.getRange("DailyMetrics!A2:K10000");
+        const dailyRows = await api.getRange("DailyMetrics!A2:M10000");
         const foodRows = await api.getRange("Foods!A2:K10000");
         const categoryRows = await api.getRange("FoodCategories!A2:D10000");
         const measurementRows = await api.getRange("Measurements!A2:F10000");
@@ -829,7 +833,9 @@ function parseSleepInput(raw) {
           steps: nz(r[7]),
           protein: nz(r[8]),
           calories: nz(r[9]),
-          note: r[10] || ""
+          note: r[10] || "",
+          sleepHrLow: nz(r[11]),
+          sleepHrAvg: nz(r[12])
         }));
         setRoutines(loadedRoutines);
         setEntries(loadedEntries);
@@ -883,6 +889,27 @@ function parseSleepInput(raw) {
         setActiveRoutineId((prev) => {
           var _a;
           return prev || ((_a = loadedRoutines[0]) == null ? void 0 : _a.id) || null;
+        });
+
+        // Prefill the Daily form from whatever's already in the sheet for today
+        // (and yesterday, for the nutrition fields) — whether that data was typed
+        // manually or written by an external source like a Tasker automation.
+        setDailyForm((prevForm) => {
+          const next = { ...prevForm };
+          const todayEntry = loadedDaily.find((d) => d.date === prevForm.date);
+          if (todayEntry) {
+            for (const k of MORNING_KEYS) {
+              if (!prevForm[k] && todayEntry[k] !== null && todayEntry[k] !== void 0) next[k] = valToFormStr(k, todayEntry[k]);
+            }
+            if (!prevForm.note && todayEntry.note) next.note = todayEntry.note;
+          }
+          const nutritionEntry = loadedDaily.find((d) => d.date === prevForm.nutritionDate);
+          if (nutritionEntry) {
+            for (const k of NUTRITION_KEYS) {
+              if (!prevForm[k] && nutritionEntry[k] !== null && nutritionEntry[k] !== void 0) next[k] = valToFormStr(k, nutritionEntry[k]);
+            }
+          }
+          return next;
         });
       } catch (e) {
         setErrorMsg(String(e));
@@ -1017,8 +1044,8 @@ function parseSleepInput(raw) {
         setSaveState("saving");
         try {
           const nz = (v) => v === null || v === void 0 ? "" : v;
-          const rows = nextMetrics.slice().sort((a, b) => a.date.localeCompare(b.date)).map((d) => [d.date, nz(d.weight), nz(d.sleep), nz(d.sleepScore), nz(d.readiness), nz(d.hrv), nz(d.rhr), nz(d.steps), nz(d.protein), nz(d.calories), nz(d.note)]);
-          await api.clearRange("DailyMetrics!A2:K10000");
+          const rows = nextMetrics.slice().sort((a, b) => a.date.localeCompare(b.date)).map((d) => [d.date, nz(d.weight), nz(d.sleep), nz(d.sleepScore), nz(d.readiness), nz(d.hrv), nz(d.rhr), nz(d.steps), nz(d.protein), nz(d.calories), nz(d.note), nz(d.sleepHrLow), nz(d.sleepHrAvg)]);
+          await api.clearRange("DailyMetrics!A2:M10000");
           if (rows.length) await api.updateRange("DailyMetrics!A2", rows);
           setSaveState("saved");
           setTimeout(() => setSaveState("idle"), 1200);
@@ -1037,7 +1064,7 @@ function parseSleepInput(raw) {
           for (const k of Object.keys(values)) if (values[k] !== null && !Number.isNaN(values[k])) merged[k] = values[k];
           next[idx] = merged;
         } else {
-          const base = { date, weight: null, hrv: null, rhr: null, protein: null, calories: null, sleep: null, sleepScore: null, readiness: null, steps: null, note: null };
+          const base = { date, weight: null, hrv: null, rhr: null, protein: null, calories: null, sleep: null, sleepScore: null, readiness: null, steps: null, note: null, sleepHrLow: null, sleepHrAvg: null };
           for (const k of Object.keys(values)) if (values[k] !== null && !Number.isNaN(values[k])) base[k] = values[k];
           next.push(base);
         }
@@ -1057,7 +1084,7 @@ function parseSleepInput(raw) {
         let next = prev.map((d) => d.date === oldDate ? { ...d, [key]: null } : d);
         const idx = next.findIndex((d) => d.date === newDate);
         if (idx >= 0) next[idx] = { ...next[idx], [key]: value };
-        else next.push({ date: newDate, weight: null, hrv: null, rhr: null, protein: null, calories: null, sleep: null, sleepScore: null, readiness: null, steps: null, note: null, [key]: value });
+        else next.push({ date: newDate, weight: null, hrv: null, rhr: null, protein: null, calories: null, sleep: null, sleepScore: null, readiness: null, steps: null, note: null, sleepHrLow: null, sleepHrAvg: null, [key]: value });
         persistDaily(next);
         return next;
       });
@@ -1166,7 +1193,7 @@ function parseSleepInput(raw) {
     function commitDailyForm(morningValues, nutritionValues) {
       saveDailyEntry(dailyForm.date, morningValues);
       saveDailyEntry(dailyForm.nutritionDate, nutritionValues);
-      setDailyForm({ date: dailyForm.date, nutritionDate: dailyForm.nutritionDate, weight: "", hrv: "", rhr: "", protein: "", calories: "", sleep: "", sleepScore: "", readiness: "", steps: "", note: "" });
+      setDailyForm({ date: dailyForm.date, nutritionDate: dailyForm.nutritionDate, weight: "", hrv: "", rhr: "", protein: "", calories: "", sleep: "", sleepScore: "", readiness: "", steps: "", note: "", sleepHrLow: "", sleepHrAvg: "" });
       setPendingDailyOverwrite(null);
     }
     function submitDailyForm() {
@@ -1196,7 +1223,7 @@ function parseSleepInput(raw) {
       }
       commitDailyForm(morningValues, nutritionValues);
     }
-    const MORNING_KEYS = ["weight", "sleep", "sleepScore", "readiness", "hrv", "rhr"];
+    const MORNING_KEYS = ["weight", "sleep", "sleepScore", "readiness", "hrv", "rhr", "sleepHrLow", "sleepHrAvg"];
     const NUTRITION_KEYS = ["steps", "protein", "calories"];
     function valToFormStr(key, val) {
       if (val === null || val === void 0) return "";
@@ -1981,7 +2008,7 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
         onChange: (e) => setDailyForm((prev) => ({ ...prev, note: e.target.value })),
         className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm text-neutral-100"
       }
-    )), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-neutral-400 mb-3" }, "Weight, sleep, sleep score, readiness, HRV, and RHR \u2014 today's reading. Existing values for the selected date are shown automatically."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-4" }, METRIC_DEFS.filter((m) => m.group === "morning").map((m) => /* @__PURE__ */ React.createElement("div", { key: m.key }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, m.label, " ", m.unit && `(${m.unit})`), m.inputType === "time" ? /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "h:mm or 656", value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }) : /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: m.step, value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-1 pt-3 border-t border-neutral-800" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Yesterday's totals"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement("button", { onClick: () => applyNutritionDate(addDays(dailyForm.nutritionDate, -1)), className: "p-1 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 })), /* @__PURE__ */ React.createElement("input", { type: "date", value: dailyForm.nutritionDate, onChange: (e) => applyNutritionDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => applyNutritionDate(dailyForm.nutritionDate === todayStr() ? dailyForm.nutritionDate : addDays(dailyForm.nutritionDate, 1)), disabled: dailyForm.nutritionDate === todayStr(), className: `p-1 ${dailyForm.nutritionDate === todayStr() ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 })))), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-neutral-400 mb-3" }, "Steps, protein, and calories always post to this date, not today's. Existing values shown automatically."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2" }, METRIC_DEFS.filter((m) => m.group === "nutrition").map((m) => /* @__PURE__ */ React.createElement("div", { key: m.key }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, m.label, " ", m.unit && `(${m.unit})`), /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: m.step, value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })))), /* @__PURE__ */ React.createElement("button", { onClick: submitDailyForm, className: "w-full mt-4 py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, "Save")), METRIC_DEFS.map((m) => /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-neutral-400 mb-3" }, "Weight, sleep, sleep score, readiness, HRV, RHR, and overnight HR \u2014 today's reading. Existing values for the selected date are shown automatically."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-4" }, METRIC_DEFS.filter((m) => m.group === "morning").map((m) => /* @__PURE__ */ React.createElement("div", { key: m.key }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, m.label, " ", m.unit && `(${m.unit})`), m.inputType === "time" ? /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "h:mm or 656", value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" }) : /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: m.step, value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-1 pt-3 border-t border-neutral-800" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-neutral-50" }, "Yesterday's totals"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement("button", { onClick: () => applyNutritionDate(addDays(dailyForm.nutritionDate, -1)), className: "p-1 text-neutral-400" }, /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 })), /* @__PURE__ */ React.createElement("input", { type: "date", value: dailyForm.nutritionDate, onChange: (e) => applyNutritionDate(e.target.value), className: "bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: () => applyNutritionDate(dailyForm.nutritionDate === todayStr() ? dailyForm.nutritionDate : addDays(dailyForm.nutritionDate, 1)), disabled: dailyForm.nutritionDate === todayStr(), className: `p-1 ${dailyForm.nutritionDate === todayStr() ? "text-neutral-700" : "text-neutral-400"}` }, /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 })))), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-neutral-400 mb-3" }, "Steps, protein, and calories always post to this date, not today's. Existing values shown automatically."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2" }, METRIC_DEFS.filter((m) => m.group === "nutrition").map((m) => /* @__PURE__ */ React.createElement("div", { key: m.key }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] uppercase tracking-wide text-neutral-400" }, m.label, " ", m.unit && `(${m.unit})`), /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "decimal", step: m.step, value: dailyForm[m.key], onChange: (e) => setDailyForm((prev) => ({ ...prev, [m.key]: e.target.value })), className: "w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 text-sm font-mono text-neutral-100" })))), /* @__PURE__ */ React.createElement("button", { onClick: submitDailyForm, className: "w-full mt-4 py-2.5 rounded-lg bg-orange-500 text-neutral-950 font-semibold text-sm" }, "Save")), METRIC_DEFS.map((m) => /* @__PURE__ */ React.createElement(
       MetricCard,
       {
         key: m.key,
