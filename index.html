@@ -162,6 +162,7 @@
 
 
 
+
 (() => {
   const { useState, useEffect, useCallback, useRef, useMemo } = React;
   const {
@@ -276,7 +277,7 @@
     };
   }
 
-  // ============================= DAILY FUELING GAP =============================
+    // ============================= DAILY FUELING GAP =============================
   // Centralized, tunable configuration. Individualization by weight/goal/training
   // day/calorie target/recovery status is intentionally NOT built yet -- this
   // shape just leaves room for it later.
@@ -289,6 +290,13 @@
 
   // Centralized, documented scoring weights. Nothing below is a "magic number"
   // buried inline -- every constant used by scoreNutritionPortion() lives here.
+  // NOTE: there is deliberately no gram/mass-based penalty here. Food quantity
+  // (grams) is not used as a nutrition-quality signal -- doing so would
+  // systematically favor calorie-dense foods over high-volume ones, which has
+  // nothing to do with whether a food is a good fit for the remaining gap. If
+  // a "practicality" preference (e.g. avoiding oddly large single portions)
+  // is wanted later, it should be a separate, explicit, deferred concern --
+  // not folded into this score.
   const FOOD_SCORE_WEIGHTS = {
     proteinDeficitWeight: 15,      // reward per gram of protein while still below the low target
     proteinAdequateWeight: 0.3,    // reward per gram of protein once adequate (much lower)
@@ -299,13 +307,7 @@
     carbUsefulWeight: 1,           // reward per gram of carbs as flexible energy
     carbRunDayMultiplier: 1.5,     // boost for carbs on run/strength_run days
     calorieFitWeight: 1,           // reward per useful kcal toward the remaining-low gap
-    calorieOvershootPenalty: 2,    // penalty per kcal pushing the day's total past the high target
-    gramMassPenalty: 1.5          // tiny penalty per gram of quantity; makes the optimizer
-                                    // prefer the smallest amount that still captures the
-                                    // available benefit, rather than being indifferent
-                                    // between (say) 50g and 200g once the benefit has
-                                    // already plateaued. This is what produces "10g
-                                    // walnuts" instead of always maxing out quantity.
+    calorieOvershootPenalty: 2     // penalty per kcal pushing the day's total past the high target
   };
 
   const FUELING_GAP_CONFIG = {
@@ -314,13 +316,13 @@
     maxCandidateGrams: 200,          // never recommend more than this of one food
     quantityCandidatesG: [10, 15, 20, 25, 30, 40, 50, 60, 75, 85, 100, 113, 125, 150, 170, 200],
     shortlistSize: 6,                // how many single-food candidates advance to combo search
+    variantsPerFood: 3,              // how many distinct quantity variants per shortlisted food
+                                      // are made available to the combination search, instead of
+                                      // locking each food to a single isolated-optimum quantity
     maxResults: 3,                   // BEST FIT + up to 2 ALTERNATIVEs
-    // A single recommendation should read like "a sensible next thing to eat",
-    // not "eat this to close 100% of a mostly-empty day". These caps bound how
-    // much of the *remaining gap* a single recommendation is rewarded for
-    // covering, independent of how much gap actually remains -- this is what
-    // keeps recommendations from ballooning into unrealistic multi-hundred-gram
-    // combinations on a very light-food day.
+    // A single recommendation should read like "a sensible next thing to eat".
+    // These caps bound how much of the *remaining gap* a single recommendation
+    // is rewarded for covering, independent of how much gap actually remains.
     maxUsefulCaloriesPerRec: 600,
     maxUsefulProteinPerRec: 40,
     maxUsefulFatPerRec: 25,
@@ -351,10 +353,26 @@
     };
   }
 
+  // "Well fueled" requires calories to be reasonably satisfied AND both protein
+  // and fat minimums met. Hitting the calorie ceiling alone does NOT count --
+  // see calculateFlexibleCarbRange() / computeDailyFuelingGap() for how a
+  // calories-capped-but-macros-short day is represented separately.
   function isWellFueled(totals, gap, targets) {
     const adequacy = computeAdequacy(totals, targets);
     const caloriesSatisfied = gap.caloriesRemainingLow <= FUELING_GAP_CONFIG.wellFueledCalorieBuffer;
     return caloriesSatisfied && adequacy.proteinAdequate && adequacy.fatAdequate;
+  }
+
+  // Carbohydrate is the flexible nutrient that fills remaining energy needs
+  // AFTER minimum protein and fat are accounted for -- not simply "remaining
+  // calories / 4", which would falsely assume every remaining calorie should
+  // come from carbohydrate even when protein/fat minimums haven't been met yet.
+  function calculateFlexibleCarbRange(gap) {
+    const proteinCaloriesNeeded = Math.max(0, gap.proteinRemainingLow) * 4;
+    const fatCaloriesNeeded = Math.max(0, gap.fatRemainingLow) * 9;
+    const flexibleLow = Math.max(0, gap.caloriesRemainingLow - proteinCaloriesNeeded - fatCaloriesNeeded);
+    const flexibleHigh = Math.max(flexibleLow, gap.caloriesRemainingHigh - proteinCaloriesNeeded - fatCaloriesNeeded);
+    return { carbsRemainingLow: flexibleLow / 4, carbsRemainingHigh: Math.max(flexibleLow, flexibleHigh) / 4 };
   }
 
   // Scores a nutrition delta (a single food portion OR a combined multi-food
@@ -362,12 +380,12 @@
   // a much lower weight than nutrients still below their minimum, and overshoot
   // past the day's high target is penalized -- this is the one place scoring
   // logic lives, reused for both single foods and combinations.
-  function scoreNutritionPortion(nutrition, gap, totals, targets, dayType, totalGrams) {
+  function scoreNutritionPortion(nutrition, gap, totals, targets, dayType) {
     const W = FOOD_SCORE_WEIGHTS;
+    const G = FUELING_GAP_CONFIG;
     const adequacy = computeAdequacy(totals, targets);
     let score = 0;
 
-    const G = FUELING_GAP_CONFIG;
     const proteinNeeded = Math.min(Math.max(0, gap.proteinRemainingLow), G.maxUsefulProteinPerRec);
     const proteinUseful = Math.min(nutrition.protein, proteinNeeded);
     const proteinExcess = nutrition.protein - proteinUseful;
@@ -395,31 +413,42 @@
       score -= overshoot * W.calorieOvershootPenalty;
     }
 
-    if (totalGrams) score -= totalGrams * W.gramMassPenalty;
-
     return score;
   }
 
-  // For each live food, tries a capped set of gram quantities and keeps the
-  // single best-scoring quantity. This is the "score individual foods first"
-  // step the performance section asks for, before any combination search.
+  // For each live food, scores a capped set of gram quantities and keeps the
+  // top few DISTINCT-scoring variants (not just the single best) so the
+  // combination search below can consider more than one quantity per food.
   function generateFoodCandidates(liveFoods, gap, totals, targets, dayType) {
-    const candidates = [];
+    const perFoodVariants = [];
     liveFoods.forEach((food) => {
-      let best = null;
+      const scored = [];
       const grams = FUELING_GAP_CONFIG.quantityCandidatesG.concat(food.defaultGrams || 100);
       grams.forEach((g) => {
         if (g < FUELING_GAP_CONFIG.minGramStep || g > FUELING_GAP_CONFIG.maxCandidateGrams) return;
         const nutrition = computeFoodNutrition(food, g);
-        const score = scoreNutritionPortion(nutrition, gap, totals, targets, dayType, g);
-        if (!best || score > best.score) {
-          best = { food, grams: g, nutrition, score };
-        }
+        const score = scoreNutritionPortion(nutrition, gap, totals, targets, dayType);
+        scored.push({ food, grams: g, nutrition, score });
       });
-      if (best && best.score > 0) candidates.push(best);
+      scored.sort((a, b) => b.score - a.score);
+
+      const topVariants = [];
+      for (const s of scored) {
+        if (topVariants.length >= FUELING_GAP_CONFIG.variantsPerFood) break;
+        // Skip near-duplicate scores at a different quantity -- keeps the
+        // variant set meaningfully distinct rather than padded with
+        // essentially-identical options.
+        const isDuplicate = topVariants.some((v) => Math.abs(v.score - s.score) < 0.01);
+        if (isDuplicate) continue;
+        topVariants.push(s);
+      }
+
+      if (topVariants.length && topVariants[0].score > 0) {
+        perFoodVariants.push({ food, variants: topVariants, bestScore: topVariants[0].score });
+      }
     });
-    candidates.sort((a, b) => b.score - a.score);
-    return candidates;
+    perFoodVariants.sort((a, b) => b.bestScore - a.bestScore);
+    return perFoodVariants;
   }
 
   function sumNutrition(parts) {
@@ -435,42 +464,55 @@
   }
 
   // Takes the strongest single-food candidates only (shortlistSize), then
-  // evaluates every 1/2/3-food combination from that shortlist -- not every
-  // food against every food, which is what keeps this fast per spec section 12.
+  // evaluates 1/2/3-food combinations using EVERY retained quantity variant
+  // for each shortlisted food -- not a single quantity fixed in isolation.
+  // Still bounded: shortlistSize=6 foods x variantsPerFood=3 keeps this to a
+  // few hundred cheap sum+score evaluations at most.
   function findBestFoodCombinations(candidates, gap, totals, targets, dayType) {
     const shortlist = candidates.slice(0, FUELING_GAP_CONFIG.shortlistSize);
     const results = [];
 
     shortlist.forEach((c) => {
-      results.push({ parts: [c], nutrition: c.nutrition, score: c.score });
+      c.variants.forEach((v) => {
+        results.push({ parts: [v], nutrition: v.nutrition, score: v.score });
+      });
     });
 
     for (let i = 0; i < shortlist.length; i++) {
       for (let j = i + 1; j < shortlist.length; j++) {
-        const parts = [shortlist[i], shortlist[j]];
-        const nutrition = sumNutrition(parts);
-        const totalGrams = parts.reduce((s, p) => s + p.grams, 0);
-        const score = scoreNutritionPortion(nutrition, gap, totals, targets, dayType, totalGrams);
-        results.push({ parts, nutrition, score });
+        shortlist[i].variants.forEach((vi) => {
+          shortlist[j].variants.forEach((vj) => {
+            const parts = [vi, vj];
+            const nutrition = sumNutrition(parts);
+            const score = scoreNutritionPortion(nutrition, gap, totals, targets, dayType);
+            results.push({ parts, nutrition, score });
+          });
+        });
       }
     }
 
     for (let i = 0; i < shortlist.length; i++) {
       for (let j = i + 1; j < shortlist.length; j++) {
         for (let k = j + 1; k < shortlist.length; k++) {
-          const parts = [shortlist[i], shortlist[j], shortlist[k]];
-          const nutrition = sumNutrition(parts);
-          const totalGrams = parts.reduce((s, p) => s + p.grams, 0);
-          const score = scoreNutritionPortion(nutrition, gap, totals, targets, dayType, totalGrams);
-          results.push({ parts, nutrition, score });
+          shortlist[i].variants.forEach((vi) => {
+            shortlist[j].variants.forEach((vj) => {
+              shortlist[k].variants.forEach((vk) => {
+                const parts = [vi, vj, vk];
+                const nutrition = sumNutrition(parts);
+                const score = scoreNutritionPortion(nutrition, gap, totals, targets, dayType);
+                results.push({ parts, nutrition, score });
+              });
+            });
+          });
         }
       }
     }
 
     results.sort((a, b) => b.score - a.score);
 
-    // De-dupe results that share the exact same set of foods (keep the
-    // highest-scoring variant only).
+    // De-dupe by the SET of foods involved (regardless of which quantity
+    // variant), keeping only the highest-scoring quantity combination for
+    // each distinct food-set.
     const seen = {};
     const deduped = [];
     results.forEach((r) => {
@@ -487,29 +529,34 @@
   // Top-level orchestrator: takes the day's real entries/foods (already-loaded
   // app data, no separate calculation path) and returns everything the card
   // needs to render, with no rendering logic mixed in.
+  //
+  // wellFueled means calories are reasonably satisfied AND protein AND fat
+  // minimums are both met. calorieCeilingReached is a SEPARATE flag: calories
+  // can hit the ceiling while a macro minimum is still unmet -- that is not
+  // "well fueled", and the card should say so rather than pretending the day
+  // is fine, even though no further food is recommended in that state either.
   function computeDailyFuelingGap(todaysEntries, foods, dayType) {
     const targets = getNutritionTargets(dayType);
     const totals = computeDayNutritionTotals(todaysEntries, foods);
     const gap = calculateNutritionGap(totals, targets);
     const wellFueled = isWellFueled(totals, gap, targets);
+    const calorieCeilingReached = gap.caloriesRemainingHigh <= 0;
 
     if (wellFueled) {
-      return { wellFueled: true, totals, gap, targets, recommendations: [] };
+      return { wellFueled: true, calorieCeilingReached, totals, gap, targets, recommendations: [] };
     }
 
-    // Already at/above the calorie ceiling: do not recommend more food even if
-    // a macro technically hasn't hit its upper bound (spec section 8 / test F).
-    if (gap.caloriesRemainingHigh <= 0) {
-      return { wellFueled: true, totals, gap, targets, recommendations: [] };
+    if (calorieCeilingReached) {
+      return { wellFueled: false, calorieCeilingReached: true, totals, gap, targets, recommendations: [] };
     }
 
     const liveFoods = foods.filter((f) => !f.archived);
     const candidates = generateFoodCandidates(liveFoods, gap, totals, targets, dayType);
     const recommendations = findBestFoodCombinations(candidates, gap, totals, targets, dayType);
 
-    return { wellFueled: false, totals, gap, targets, recommendations };
+    return { wellFueled: false, calorieCeilingReached: false, totals, gap, targets, recommendations };
   }
-  async function searchUSDA(query) {
+async function searchUSDA(query) {
     const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(query)}&pageSize=8&api_key=${USDA_API_KEY}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`USDA search failed (${res.status})`);
@@ -2488,16 +2535,22 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
     const fatHigh = Math.max(fatLow, round0(gap.fatRemainingHigh));
     const calLow = Math.max(0, round0(gap.caloriesRemainingLow));
     const calHigh = Math.max(calLow, round0(gap.caloriesRemainingHigh));
-    const carbsLow = Math.max(0, round0(calLow / 4));
-    const carbsHigh = Math.max(carbsLow, round0(calHigh / 4));
+    const carbRange = calculateFlexibleCarbRange(gap);
+    const carbsLow = round0(carbRange.carbsRemainingLow);
+    const carbsHigh = Math.max(carbsLow, round0(carbRange.carbsRemainingHigh));
+
+    if (fuelingGap.calorieCeilingReached) {
+      return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-wide text-neutral-500" }, "Daily Fueling Gap"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-50" }, "Calories are at today's ceiling"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400 font-mono mt-1 space-y-0.5" }, proteinHigh > 3 && /* @__PURE__ */ React.createElement("div", null, "Protein still short: +", proteinLow, "\u2013", proteinHigh, "g"), fatHigh > 3 && /* @__PURE__ */ React.createElement("div", null, "Fat still short: +", fatLow, "\u2013", fatHigh, "g"))), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-neutral-500 pt-1 border-t border-neutral-800" }, "No additional food recommended \u2014 today's calories are already at the upper target, even though the macro gap above remains."));
+    }
 
     const recs = fuelingGap.recommendations || [];
     const labels = ["BEST FIT", "ALTERNATIVE", "ALTERNATIVE"];
 
-    return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-wide text-neutral-500" }, "Daily Fueling Gap"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-50" }, calLow, "\u2013", calHigh, " kcal remaining"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400 font-mono mt-1 space-y-0.5" }, proteinHigh > 3 && /* @__PURE__ */ React.createElement("div", null, "Protein: +", proteinLow, "\u2013", proteinHigh, "g"), carbsHigh > 3 && /* @__PURE__ */ React.createElement("div", null, "Carbs: ~", carbsLow, "\u2013", carbsHigh, "g"), fatHigh > 3 && /* @__PURE__ */ React.createElement("div", null, "Fat: +", fatLow, "\u2013", fatHigh, "g"))), recs.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "space-y-2 pt-1 border-t border-neutral-800" }, recs.map((rec, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "pt-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[10px] uppercase tracking-wide text-orange-500 font-semibold mb-0.5" }, labels[i] || "ALTERNATIVE"), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-neutral-100" }, rec.parts.map((p) => `${p.grams}g ${p.food.name}`).join(" + ")), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-neutral-500 font-mono mt-0.5" }, "\u2248 ", rec.nutrition.calories, " kcal \xB7 ", rec.nutrition.protein, "g protein \xB7 ", rec.nutrition.carbs, "g carbs \xB7 ", rec.nutrition.fat, "g fat")))));
+    return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-wide text-neutral-500" }, "Daily Fueling Gap"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-50" }, calLow, "\u2013", calHigh, " kcal remaining"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-400 font-mono mt-1 space-y-0.5" }, proteinHigh > 3 && /* @__PURE__ */ React.createElement("div", null, "Protein: +", proteinLow, "\u2013", proteinHigh, "g"), carbsHigh > 3 && /* @__PURE__ */ React.createElement("div", null, "Carbs (flexible): ~", carbsLow, "\u2013", carbsHigh, "g"), fatHigh > 3 && /* @__PURE__ */ React.createElement("div", null, "Fat: +", fatLow, "\u2013", fatHigh, "g"))), recs.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "space-y-2 pt-1 border-t border-neutral-800" }, recs.map((rec, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "pt-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[10px] uppercase tracking-wide text-orange-500 font-semibold mb-0.5" }, labels[i] || "ALTERNATIVE"), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-neutral-100" }, rec.parts.map((p) => `${p.grams}g ${p.food.name}`).join(" + ")), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-neutral-500 font-mono mt-0.5" }, "\u2248 ", rec.nutrition.calories, " kcal \xB7 ", rec.nutrition.protein, "g protein \xB7 ", rec.nutrition.carbs, "g carbs \xB7 ", rec.nutrition.fat, "g fat")))));
   }
 
-  function NutritionView(props) {
+  
+function NutritionView(props) {
     const {
       foods,
       nutritionEntries,
@@ -2815,6 +2868,7 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
     console.error(e);
   }
 })();
+
 
 
 
