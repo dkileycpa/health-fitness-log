@@ -164,6 +164,7 @@
 
 
 
+
 (() => {
   const { useState, useEffect, useCallback, useRef, useMemo } = React;
   const {
@@ -276,6 +277,228 @@
       fat: Math.round(fat * 10) / 10,
       carbs: Math.round(carbs * 10) / 10
     };
+  }
+
+  // ============================= SLEEP RAW PARSER =============================
+  // Parses SleepRaw.sleep_json (untouched Health Connect data) into derived
+  // sleep metrics. The raw JSON is never modified -- this is a read-only,
+  // pure-function layer on top of it. Nothing here writes to CoachExport or
+  // touches the Google Sheet.
+
+  var SLEEP_STAGE_NAMES = {
+    0: "UNKNOWN", 1: "AWAKE", 2: "SLEEPING", 3: "OUT_OF_BED",
+    4: "LIGHT", 5: "DEEP", 6: "REM", 7: "AWAKE_IN_BED"
+  };
+  var AWAKE_TYPE_STAGES = ["AWAKE", "OUT_OF_BED", "AWAKE_IN_BED"];
+
+  function parseZoneOffsetMinutes(offsetStr) {
+    if (!offsetStr || offsetStr === "Z") return 0;
+    const m = String(offsetStr).match(/^([+-])(\d{2}):(\d{2})$/);
+    if (!m) return null;
+    const sign = m[1] === "-" ? -1 : 1;
+    return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10));
+  }
+
+  function localDateFromEpoch(epochMs, offsetMinutes) {
+    if (offsetMinutes === null || offsetMinutes === undefined) return null;
+    const shifted = new Date(epochMs + offsetMinutes * 60000);
+    const y = shifted.getUTCFullYear();
+    const mo = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(shifted.getUTCDate()).padStart(2, "0");
+    return `${y}-${mo}-${d}`;
+  }
+
+  // Isolated, explicit, v1 rule -- swap this out later without touching
+  // anything downstream. "targetDate" is a starting anchor (typically the
+  // SleepRaw row's own date column), not blindly trusted as final truth:
+  // the canonical date returned by the caller comes from whichever session
+  // actually gets selected here, not from targetDate itself.
+  function selectPrimarySession(records, targetDate) {
+    const withMeta = records
+      .filter((r) => r && r.startTime !== undefined && r.endTime !== undefined)
+      .map((r) => {
+        const endOffset = parseZoneOffsetMinutes(r.endZoneOffset);
+        return {
+          record: r,
+          durationMs: r.endTime - r.startTime,
+          endDate: endOffset === null ? null : localDateFromEpoch(r.endTime, endOffset)
+        };
+      })
+      .filter((x) => x.durationMs > 0);
+
+    if (!withMeta.length) return { record: null, matchedTargetDate: false };
+
+    const candidates = targetDate ? withMeta.filter((x) => x.endDate === targetDate) : [];
+    if (candidates.length) {
+      candidates.sort((a, b) => b.durationMs - a.durationMs);
+      return { record: candidates[0].record, matchedTargetDate: true };
+    }
+
+    // Fallback: no session actually ends on the target morning -- pick the
+    // single longest session overall rather than returning nothing.
+    withMeta.sort((a, b) => b.durationMs - a.durationMs);
+    return { record: withMeta[0].record, matchedTargetDate: false };
+  }
+
+  function sessionIdentityKey(record) {
+    const id = record.metadata && record.metadata.id;
+    if (id) return `id:${id}`;
+    return `ts:${record.startTime}|${record.endTime}`;
+  }
+
+  // Given the SELECTED primary session record, compute every derived metric.
+  // Pure function: no knowledge of rows, dates, or dedup -- just one session in,
+  // one metrics object out.
+  function computeSessionMetrics(record) {
+    const stages = (record.stages || []).slice().sort((a, b) => a.startTime - b.startTime);
+    const sessionDurationMin = Math.round(((record.endTime - record.startTime) / 60000) * 10) / 10;
+
+    const minutesByStage = { AWAKE: 0, LIGHT: 0, DEEP: 0, REM: 0, OUT_OF_BED: 0, AWAKE_IN_BED: 0, SLEEPING: 0, UNKNOWN: 0 };
+    stages.forEach((s) => {
+      const name = SLEEP_STAGE_NAMES[s.stage] || "UNKNOWN";
+      const durMin = Math.round(((s.endTime - s.startTime) / 60000) * 10) / 10;
+      minutesByStage[name] = Math.round((minutesByStage[name] + durMin) * 10) / 10;
+    });
+
+    const awakeMinutes = Math.round((minutesByStage.AWAKE + minutesByStage.OUT_OF_BED + minutesByStage.AWAKE_IN_BED) * 10) / 10;
+    const lightMinutes = minutesByStage.LIGHT;
+    const deepMinutes = minutesByStage.DEEP;
+    const remMinutes = minutesByStage.REM;
+    const totalStagedSleep = Math.round((lightMinutes + deepMinutes + remMinutes) * 10) / 10;
+    const sleepEfficiency = sessionDurationMin > 0 ? Math.round((totalStagedSleep / sessionDurationMin) * 1000) / 1000 : null;
+
+    function pctOfStagedSleep(minutes) {
+      return totalStagedSleep > 0 ? Math.round((minutes / totalStagedSleep) * 1000) / 10 : null;
+    }
+
+    // Group stages into contiguous runs by AWAKE-type vs sleep-type, then
+    // classify each AWAKE-type run by WHERE it falls relative to the first
+    // and last sleep-type run -- this is what separates "still settling in",
+    // "woke up mid-night", and "done sleeping, still logged as in bed".
+    const runs = [];
+    stages.forEach((s) => {
+      const name = SLEEP_STAGE_NAMES[s.stage] || "UNKNOWN";
+      const isAwakeType = AWAKE_TYPE_STAGES.indexOf(name) !== -1;
+      const last = runs[runs.length - 1];
+      if (last && last.isAwakeType === isAwakeType) {
+        last.end = s.endTime;
+      } else {
+        runs.push({ isAwakeType: isAwakeType, start: s.startTime, end: s.endTime });
+      }
+    });
+
+    const firstSleepRunIdx = runs.findIndex((r) => !r.isAwakeType);
+    const lastSleepRunIdx = (() => {
+      for (let i = runs.length - 1; i >= 0; i--) if (!runs[i].isAwakeType) return i;
+      return -1;
+    })();
+
+    let initialAwakeMin = 0;
+    let terminalAwakeMin = 0;
+    const middleAwakenings = []; // {start, end} -- awake runs strictly between first and last sleep-type run
+
+    runs.forEach((r, idx) => {
+      if (!r.isAwakeType) return;
+      const durMin = Math.round(((r.end - r.start) / 60000) * 10) / 10;
+      if (firstSleepRunIdx === -1) {
+        // No sleep-type stage at all in this session -- an edge case that
+        // shouldn't occur in practice. Everything falls back to "initial"
+        // rather than being silently dropped.
+        initialAwakeMin = Math.round((initialAwakeMin + durMin) * 10) / 10;
+      } else if (idx < firstSleepRunIdx) {
+        initialAwakeMin = Math.round((initialAwakeMin + durMin) * 10) / 10;
+      } else if (idx > lastSleepRunIdx) {
+        terminalAwakeMin = Math.round((terminalAwakeMin + durMin) * 10) / 10;
+      } else {
+        middleAwakenings.push({ start: r.start, end: r.end });
+      }
+    });
+
+    const middleAwakeningDurationsMin = middleAwakenings.map((a) => Math.round(((a.end - a.start) / 60000) * 10) / 10);
+    const middleAwakeMin = Math.round(middleAwakeningDurationsMin.reduce((a, b) => a + b, 0) * 10) / 10;
+    const longestMiddleAwakeMin = middleAwakeningDurationsMin.length ? Math.max(...middleAwakeningDurationsMin) : 0;
+
+    // WASO (Wake After Sleep Onset): the standard clinical convention is wake
+    // time BETWEEN sleep onset and the final awakening -- i.e. middle_awake_min
+    // only. It deliberately excludes both initial_awake_min (hasn't fallen
+    // asleep yet) and terminal_awake_min (already done sleeping for the
+    // night). All three components are retained separately so an alternative
+    // WASO definition (e.g. including terminal time) can be computed later
+    // without re-parsing anything.
+    const wasoMin = middleAwakeMin;
+
+    return {
+      session_duration_min: sessionDurationMin,
+      light_min: lightMinutes,
+      deep_min: deepMinutes,
+      rem_min: remMinutes,
+      total_staged_sleep_min: totalStagedSleep,
+      sleep_efficiency: sleepEfficiency,
+      initial_awake_min: initialAwakeMin,
+      awakenings_count: middleAwakenings.length,
+      middle_awake_min: middleAwakeMin,
+      middle_awakening_durations_min: middleAwakeningDurationsMin,
+      longest_middle_awake_min: longestMiddleAwakeMin,
+      terminal_awake_min: terminalAwakeMin,
+      waso_min: wasoMin,
+      stage_percentages_of_sleep: {
+        light_pct_of_sleep: pctOfStagedSleep(lightMinutes),
+        deep_pct_of_sleep: pctOfStagedSleep(deepMinutes),
+        rem_pct_of_sleep: pctOfStagedSleep(remMinutes)
+      }
+    };
+  }
+
+  // Top level: given one SleepRaw row, parse its raw JSON, select the primary
+  // session, and return a clean derived object. Never mutates row.sleep_json.
+  function parseSleepRawRow(row) {
+    let parsed;
+    try {
+      parsed = JSON.parse(row.sleep_json);
+    } catch (e) {
+      return { error: "Invalid sleep_json: " + e.message, row_date: row.date };
+    }
+    const records = (parsed && parsed.records) || [];
+    if (!records.length) {
+      return { error: "No records in sleep_json", row_date: row.date };
+    }
+
+    const selection = selectPrimarySession(records, row.date);
+    if (!selection.record) {
+      return { error: "No usable session found", row_date: row.date };
+    }
+
+    const endOffset = parseZoneOffsetMinutes(selection.record.endZoneOffset);
+    const canonicalDate = localDateFromEpoch(selection.record.endTime, endOffset);
+    const metrics = computeSessionMetrics(selection.record);
+
+    return {
+      error: null,
+      row_date: row.date,
+      canonical_date: canonicalDate,
+      matched_target_date: selection.matchedTargetDate,
+      captured_at: row.captured_at,
+      source: row.source,
+      session_identity_key: sessionIdentityKey(selection.record),
+      session_start_ms: selection.record.startTime,
+      session_end_ms: selection.record.endTime,
+      metrics: metrics
+    };
+  }
+
+  // Top level: given ALL SleepRaw rows, parse each and de-duplicate by
+  // underlying session identity (same night captured more than once).
+  // Keeps whichever capture has the latest captured_at per unique session.
+  function parseAllSleepRawRows(rows) {
+    const parsed = rows.map(parseSleepRawRow).filter((p) => !p.error);
+    const bySession = {};
+    parsed.forEach((p) => {
+      const existing = bySession[p.session_identity_key];
+      if (!existing || String(p.captured_at) > String(existing.captured_at)) {
+        bySession[p.session_identity_key] = p;
+      }
+    });
+    return Object.values(bySession).sort((a, b) => a.canonical_date < b.canonical_date ? -1 : a.canonical_date > b.canonical_date ? 1 : 0);
   }
 
     // ============================= DAILY FUELING GAP =============================
@@ -995,6 +1218,10 @@ function parseSleepInput(raw) {
     const [categories, setCategories] = useState([]);
     const [measurements, setMeasurements] = useState([]);
     const [measurementForm, setMeasurementForm] = useState({ date: todayStr(), waistNaval: "", waistBand: "", shoulders: "", chest: "", hips: "" });
+    // Data/instrumentation layer only for now -- no UI reads this yet. Once
+    // enough nights accumulate, this is what a future sleep-quality feature
+    // (or a custom readiness score) would build on. Never touches CoachExport.
+    const [sleepDerivedNights, setSleepDerivedNights] = useState([]);
     const [measurementEditing, setMeasurementEditing] = useState(null);
     const [measurementConfirmDelete, setMeasurementConfirmDelete] = useState(null);
 
@@ -1129,6 +1356,16 @@ function parseSleepInput(raw) {
         const categoryRows = await api.getRange("FoodCategories!A2:D10000");
         const measurementRows = await api.getRange("Measurements!A2:F10000");
         const nutritionEntryRows = await api.getRange("NutritionEntries!A2:K10000");
+        // Data/instrumentation layer only -- read, parse, store in state.
+        // Nothing renders this yet and nothing here touches CoachExport.
+        let loadedSleepDerived = [];
+        try {
+          const sleepRawRows = await api.getRange("SleepRaw!A2:D10000");
+          const sleepRawObjects = sleepRawRows.filter((r) => r[0]).map((r) => ({ date: r[0], captured_at: r[1] || "", source: r[2] || "", sleep_json: r[3] || "" }));
+          loadedSleepDerived = parseAllSleepRawRows(sleepRawObjects);
+        } catch (sleepParseErr) {
+          console.warn("SleepRaw parsing skipped:", sleepParseErr);
+        }
         const loadedRoutines = routineRows.filter((r) => r[0]).map((r) => ({ id: r[0], name: r[1] || "", sortOrder: parseInt(r[2], 10) || 0, exercises: [] })).sort((a, b) => a.sortOrder - b.sortOrder);
         const byRoutine = {};
         exerciseRows.filter((r) => r[0]).forEach((r) => {
@@ -1219,6 +1456,13 @@ function parseSleepInput(raw) {
         setCategories(loadedCategories);
         setMeasurements(loadedMeasurements);
         setNutritionEntries(loadedNutritionEntries);
+        setSleepDerivedNights(loadedSleepDerived);
+        // Temporary debug output for the data-layer-only integration --
+        // confirms real parsing against live data without adding any UI.
+        // Safe to remove once confirmed; doesn't affect app behavior.
+        const sep3Result = loadedSleepDerived.find((n) => n.canonical_date === "2026-09-03");
+        console.log("[sleep-parser] Sep 3 result:", sep3Result || "(no entry found for 2026-09-03)");
+        console.log("[sleep-parser] all parsed nights:", loadedSleepDerived);
         setActiveRoutineId((prev) => {
           var _a;
           return prev || ((_a = loadedRoutines[0]) == null ? void 0 : _a.id) || null;
@@ -2898,6 +3142,7 @@ function NutritionView(props) {
     console.error(e);
   }
 })();
+
 
 
 
