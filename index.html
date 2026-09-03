@@ -165,6 +165,7 @@
 
 
 
+
 (() => {
   const { useState, useEffect, useCallback, useRef, useMemo } = React;
   const {
@@ -427,6 +428,13 @@
     // without re-parsing anything.
     const wasoMin = middleAwakeMin;
 
+    // Longest continuous sleep block: the longest uninterrupted run of
+    // sleep-type stages (LIGHT/DEEP/REM/SLEEPING -- the same non-awake-type
+    // classification already used above for run grouping), ending as soon as
+    // any awake-type stage begins. Diagnostic only -- not used in any score.
+    const sleepBlockDurationsMin = runs.filter((r) => !r.isAwakeType).map((r) => Math.round(((r.end - r.start) / 60000) * 10) / 10);
+    const longestContinuousSleepMin = sleepBlockDurationsMin.length ? Math.max(...sleepBlockDurationsMin) : 0;
+
     return {
       session_duration_min: sessionDurationMin,
       light_min: lightMinutes,
@@ -441,6 +449,8 @@
       longest_middle_awake_min: longestMiddleAwakeMin,
       terminal_awake_min: terminalAwakeMin,
       waso_min: wasoMin,
+      longest_continuous_sleep_min: longestContinuousSleepMin,
+      sleep_block_durations_min: sleepBlockDurationsMin,
       stage_percentages_of_sleep: {
         light_pct_of_sleep: pctOfStagedSleep(lightMinutes),
         deep_pct_of_sleep: pctOfStagedSleep(deepMinutes),
@@ -3142,6 +3152,7 @@ function NutritionView(props) {
     console.error(e);
   }
 })();
+
 
 
 
