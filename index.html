@@ -280,6 +280,46 @@
     };
   }
 
+  // Pure helper (no React/closure state): decides how a manual Daily-Form
+  // "Save/Sync" should write protein/calories/fat/carbs for one nutrition
+  // date. NutritionEntries are the single source of truth for all four
+  // macros whenever entries exist for that date -- deriving them together
+  // here (the same way syncDailyTotalsForDate does) is what stops
+  // commitDailyForm() from ever moving protein/calories forward without
+  // fat/carbs, which was the root cause of stale fat/carb snapshots.
+  //
+  // When there are no entries for the date (a pure manual/no-food-log day),
+  // protein/calories fall back to whatever was typed in the form (unchanged
+  // behavior). There is no food-derived source for fat/carbs on such a day,
+  // so they are explicitly cleared rather than silently left at whatever a
+  // *different* day's sync last wrote into those columns -- an unrelated
+  // stale number is worse than an honest "unknown".
+  //
+  // Returns { merge: {...fields to write as real numbers...}, clear: [...field names to null out...] }.
+  function resolveNutritionDailySave(dayEntries, foods, nutritionValues) {
+    if (dayEntries.length > 0) {
+      const totals = computeDayNutritionTotals(dayEntries, foods);
+      return {
+        merge: {
+          steps: nutritionValues.steps,
+          protein: totals.protein,
+          calories: totals.calories,
+          fatG: totals.fat,
+          carbsG: totals.carbs
+        },
+        clear: []
+      };
+    }
+    return {
+      merge: {
+        steps: nutritionValues.steps,
+        protein: nutritionValues.protein,
+        calories: nutritionValues.calories
+      },
+      clear: ["fatG", "carbsG"]
+    };
+  }
+
   // ============================= SLEEP RAW PARSER =============================
   // Parses SleepRaw.sleep_json (untouched Health Connect data) into derived
   // sleep metrics. The raw JSON is never modified -- this is a read-only,
@@ -1361,7 +1401,7 @@ function parseSleepInput(raw) {
         const exerciseRows = await api.getRange("Exercises!A2:F10000");
         const entryRows = await api.getRange("Entries!A2:H10000");
         const overrideRows = await api.getRange("SessionOverrides!A2:D10000");
-        const dailyRows = await api.getRange("DailyMetrics!A2:M10000");
+        const dailyRows = await api.getRange("DailyMetrics!A2:O10000");
         const foodRows = await api.getRange("Foods!A2:K10000");
         const categoryRows = await api.getRange("FoodCategories!A2:D10000");
         const measurementRows = await api.getRange("Measurements!A2:F10000");
@@ -1415,7 +1455,9 @@ function parseSleepInput(raw) {
           calories: nz(r[9]),
           note: r[10] || "",
           sleepHrLow: nz(r[11]),
-          sleepHrAvg: nz(r[12])
+          sleepHrAvg: nz(r[12]),
+          fatG: nz(r[13]),
+          carbsG: nz(r[14])
         }));
         setRoutines(loadedRoutines);
         setEntries(loadedEntries);
@@ -1636,8 +1678,8 @@ function parseSleepInput(raw) {
         setSaveState("saving");
         try {
           const nz = (v) => v === null || v === void 0 ? "" : v;
-          const rows = nextMetrics.slice().sort((a, b) => a.date.localeCompare(b.date)).map((d) => [d.date, nz(d.weight), nz(d.sleep), nz(d.sleepScore), nz(d.readiness), nz(d.hrv), nz(d.rhr), nz(d.steps), nz(d.protein), nz(d.calories), nz(d.note), nz(d.sleepHrLow), nz(d.sleepHrAvg)]);
-          await api.clearRange("DailyMetrics!A2:M10000");
+          const rows = nextMetrics.slice().sort((a, b) => a.date.localeCompare(b.date)).map((d) => [d.date, nz(d.weight), nz(d.sleep), nz(d.sleepScore), nz(d.readiness), nz(d.hrv), nz(d.rhr), nz(d.steps), nz(d.protein), nz(d.calories), nz(d.note), nz(d.sleepHrLow), nz(d.sleepHrAvg), nz(d.fatG), nz(d.carbsG)]);
+          await api.clearRange("DailyMetrics!A2:O10000");
           if (rows.length) await api.updateRange("DailyMetrics!A2", rows);
           setSaveState("saved");
           setTimeout(() => setSaveState("idle"), 1200);
@@ -1656,7 +1698,7 @@ function parseSleepInput(raw) {
           for (const k of Object.keys(values)) if (values[k] !== null && !Number.isNaN(values[k])) merged[k] = values[k];
           next[idx] = merged;
         } else {
-          const base = { date, weight: null, hrv: null, rhr: null, protein: null, calories: null, sleep: null, sleepScore: null, readiness: null, steps: null, note: null, sleepHrLow: null, sleepHrAvg: null };
+          const base = { date, weight: null, hrv: null, rhr: null, protein: null, calories: null, sleep: null, sleepScore: null, readiness: null, steps: null, note: null, sleepHrLow: null, sleepHrAvg: null, fatG: null, carbsG: null };
           for (const k of Object.keys(values)) if (values[k] !== null && !Number.isNaN(values[k])) base[k] = values[k];
           next.push(base);
         }
@@ -1676,7 +1718,7 @@ function parseSleepInput(raw) {
         let next = prev.map((d) => d.date === oldDate ? { ...d, [key]: null } : d);
         const idx = next.findIndex((d) => d.date === newDate);
         if (idx >= 0) next[idx] = { ...next[idx], [key]: value };
-        else next.push({ date: newDate, weight: null, hrv: null, rhr: null, protein: null, calories: null, sleep: null, sleepScore: null, readiness: null, steps: null, note: null, sleepHrLow: null, sleepHrAvg: null, [key]: value });
+        else next.push({ date: newDate, weight: null, hrv: null, rhr: null, protein: null, calories: null, sleep: null, sleepScore: null, readiness: null, steps: null, note: null, sleepHrLow: null, sleepHrAvg: null, fatG: null, carbsG: null, [key]: value });
         persistDaily(next);
         return next;
       });
@@ -1785,7 +1827,11 @@ function parseSleepInput(raw) {
     }, [pendingCoachSync]);
     function commitDailyForm(morningValues, nutritionValues) {
       saveDailyEntry(dailyForm.date, morningValues);
-      saveDailyEntry(dailyForm.nutritionDate, nutritionValues);
+      const nutritionDate = dailyForm.nutritionDate;
+      const dayEntries = nutritionEntries.filter((e) => e.date === nutritionDate);
+      const resolved = resolveNutritionDailySave(dayEntries, foods, nutritionValues);
+      saveDailyEntry(nutritionDate, resolved.merge);
+      resolved.clear.forEach((key) => clearDailyValue(nutritionDate, key));
       setDailyForm({ date: dailyForm.date, nutritionDate: dailyForm.nutritionDate, weight: "", hrv: "", rhr: "", protein: "", calories: "", sleep: "", sleepScore: "", readiness: "", steps: "", note: "", sleepHrLow: "", sleepHrAvg: "" });
       setPendingDailyOverwrite(null);
       setPendingCoachSync(true);
@@ -1987,7 +2033,9 @@ function parseSleepInput(raw) {
       const totals = computeDayNutritionTotals(dayEntries, foodsForCalc || foods);
       saveDailyEntry(date, {
         protein: dayEntries.length ? totals.protein : null,
-        calories: dayEntries.length ? totals.calories : null
+        calories: dayEntries.length ? totals.calories : null,
+        fatG: dayEntries.length ? totals.fat : null,
+        carbsG: dayEntries.length ? totals.carbs : null
       });
     }
     async function logFood(food, date) {
