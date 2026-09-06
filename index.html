@@ -1914,24 +1914,21 @@ function parseSleepInput(raw) {
       });
     }
     function addFood(foodData) {
-      let createdFood;
-      updateFoods((prev) => {
-        const sortOrder = prev.length ? Math.max(...prev.map((f) => f.sortOrder || 0)) + 1 : 0;
-        createdFood = {
-          id: genId("food"),
-          name: foodData.name,
-          category: foodData.category,
-          proteinPer100g: foodData.proteinPer100g,
-          caloriesPer100g: foodData.caloriesPer100g,
-          fatPer100g: foodData.fatPer100g || 0,
-          carbsPer100g: foodData.carbsPer100g || 0,
-          defaultGrams: foodData.defaultGrams,
-          defaultUnit: foodData.defaultUnit,
-          archived: false,
-          sortOrder
-        };
-        return [...prev, createdFood];
-      });
+      const sortOrder = foods.length ? Math.max(...foods.map((f) => f.sortOrder || 0)) + 1 : 0;
+      const createdFood = {
+        id: genId("food"),
+        name: foodData.name,
+        category: foodData.category,
+        proteinPer100g: foodData.proteinPer100g,
+        caloriesPer100g: foodData.caloriesPer100g,
+        fatPer100g: foodData.fatPer100g || 0,
+        carbsPer100g: foodData.carbsPer100g || 0,
+        defaultGrams: foodData.defaultGrams,
+        defaultUnit: foodData.defaultUnit,
+        archived: false,
+        sortOrder
+      };
+      updateFoods((prev) => [...prev, createdFood]);
       return createdFood;
     }
     function editFood(foodId, patch) {
