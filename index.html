@@ -1534,7 +1534,7 @@ function parseSleepInput(raw) {
         console.log("[sleep-parser] all parsed nights:", loadedSleepDerived);
         setActiveRoutineId((prev) => {
           var _a;
-          return prev || ((_a = loadedRoutines[0]) == null ? void 0 : _a.id) || null;
+          return prev || ((_a = loadedRoutineList[0]) == null ? void 0 : _a.id) || null;
         });
 
         // Prefill the Daily form from whatever's already in the sheet for today
