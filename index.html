@@ -1225,7 +1225,31 @@ function parseSleepInput(raw) {
     const [loading, setLoading] = useState(false);
     const [saveState, setSaveState] = useState("idle");
     const [view, setView] = useState("log");
-    const [routines, setRoutines] = useState([]);
+    const [routineData, setRoutineData] = useState({ routineList: [], exercises: [], routineExercises: [] });
+    // Derived view: reassembles the same { id, name, exercises: [...] } shape
+    // every existing consumer (LogRoutine, TrendsView, buildWorkoutSummary,
+    // CoachExport) already expects, from the normalized storage. Movement
+    // order within a routine comes from that routine's own routineExercises
+    // rows, so the same movement can sit at a different position in two
+    // different routines.
+    const routines = useMemo(() => {
+      return routineData.routineList.map((r) => ({
+        ...r,
+        exercises: routineData.routineExercises
+          .filter((m) => m.routineId === r.id)
+          .slice()
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((m) => routineData.exercises.find((e) => e.id === m.exerciseId))
+          .filter(Boolean)
+      }));
+    }, [routineData]);
+    // Movements with zero routine memberships -- shown in Manage under
+    // "Unassigned" rather than being deleted (e.g. after their last routine
+    // is removed, or every membership checkbox is unchecked).
+    const unassignedExercises = useMemo(() => {
+      const memberIds = new Set(routineData.routineExercises.map((m) => m.exerciseId));
+      return routineData.exercises.filter((e) => !memberIds.has(e.id));
+    }, [routineData]);
     const [entries, setEntries] = useState([]);
     const [dailyMetrics, setDailyMetrics] = useState([]);
     const [sessionOverrides, setSessionOverrides] = useState({});
@@ -1398,7 +1422,8 @@ function parseSleepInput(raw) {
       setErrorMsg(null);
       try {
         const routineRows = await api.getRange("Routines!A2:C10000");
-        const exerciseRows = await api.getRange("Exercises!A2:F10000");
+        const exerciseRows = await api.getRange("Exercises!A2:D10000");
+        const routineExerciseRows = await api.getRange("RoutineExercises!A2:C10000");
         const entryRows = await api.getRange("Entries!A2:H10000");
         const overrideRows = await api.getRange("SessionOverrides!A2:D10000");
         const dailyRows = await api.getRange("DailyMetrics!A2:O10000");
@@ -1416,17 +1441,9 @@ function parseSleepInput(raw) {
         } catch (sleepParseErr) {
           console.warn("SleepRaw parsing skipped:", sleepParseErr);
         }
-        const loadedRoutines = routineRows.filter((r) => r[0]).map((r) => ({ id: r[0], name: r[1] || "", sortOrder: parseInt(r[2], 10) || 0, exercises: [] })).sort((a, b) => a.sortOrder - b.sortOrder);
-        const byRoutine = {};
-        exerciseRows.filter((r) => r[0]).forEach((r) => {
-          const ex = { id: r[0], routineId: r[1], name: r[2] || "", unit: r[3] || "seconds", archived: r[4] === "TRUE" || r[4] === "true" || r[4] === true, sortOrder: parseInt(r[5], 10) || 0 };
-          if (!byRoutine[ex.routineId]) byRoutine[ex.routineId] = [];
-          byRoutine[ex.routineId].push(ex);
-        });
-        for (const key in byRoutine) byRoutine[key].sort((a, b) => a.sortOrder - b.sortOrder);
-        loadedRoutines.forEach((r) => {
-          r.exercises = byRoutine[r.id] || [];
-        });
+        const loadedRoutineList = routineRows.filter((r) => r[0]).map((r) => ({ id: r[0], name: r[1] || "", sortOrder: parseInt(r[2], 10) || 0 })).sort((a, b) => a.sortOrder - b.sortOrder);
+        const loadedExercises = exerciseRows.filter((r) => r[0]).map((r) => ({ id: r[0], name: r[1] || "", unit: r[2] || "seconds", archived: r[3] === "TRUE" || r[3] === "true" || r[3] === true }));
+        const loadedRoutineExercises = routineExerciseRows.filter((r) => r[0] && r[1]).map((r) => ({ routineId: r[0], exerciseId: r[1], sortOrder: parseInt(r[2], 10) || 0 }));
         const loadedEntries = entryRows.filter((r) => r[0]).map((r) => ({
           id: r[0],
           routineId: r[1],
@@ -1459,7 +1476,7 @@ function parseSleepInput(raw) {
           fatG: nz(r[13]),
           carbsG: nz(r[14])
         }));
-        setRoutines(loadedRoutines);
+        setRoutineData({ routineList: loadedRoutineList, exercises: loadedExercises, routineExercises: loadedRoutineExercises });
         setEntries(loadedEntries);
         setSessionOverrides(loadedOverrides);
         const loadedFoods = foodRows.filter((r) => r[0]).map((r) => ({
@@ -1555,22 +1572,20 @@ function parseSleepInput(raw) {
       if (accessToken) loadData();
     }, [accessToken, loadData]);
     const routinesSaveTimeout = useRef(null);
-    function persistRoutines(nextRoutines) {
+    function persistRoutineData(next) {
       if (routinesSaveTimeout.current) clearTimeout(routinesSaveTimeout.current);
       routinesSaveTimeout.current = setTimeout(async () => {
         setSaveState("saving");
         try {
-          const routineRows = nextRoutines.map((r, i) => [r.id, r.name, i]);
-          const exerciseRows = [];
-          nextRoutines.forEach((r) => {
-            r.exercises.forEach((ex, i) => {
-              exerciseRows.push([ex.id, r.id, ex.name, ex.unit || "seconds", ex.archived ? "TRUE" : "FALSE", i]);
-            });
-          });
+          const routineRows = next.routineList.map((r, i) => [r.id, r.name, i]);
+          const exerciseRows = next.exercises.map((ex) => [ex.id, ex.name, ex.unit || "seconds", ex.archived ? "TRUE" : "FALSE"]);
+          const membershipRows = next.routineExercises.map((m) => [m.routineId, m.exerciseId, m.sortOrder]);
           await api.clearRange("Routines!A2:C10000");
-          await api.clearRange("Exercises!A2:F10000");
+          await api.clearRange("Exercises!A2:D10000");
+          await api.clearRange("RoutineExercises!A2:C10000");
           if (routineRows.length) await api.updateRange("Routines!A2", routineRows);
           if (exerciseRows.length) await api.updateRange("Exercises!A2", exerciseRows);
+          if (membershipRows.length) await api.updateRange("RoutineExercises!A2", membershipRows);
           setSaveState("saved");
           setTimeout(() => setSaveState("idle"), 1200);
         } catch (e) {
@@ -1579,69 +1594,100 @@ function parseSleepInput(raw) {
         }
       }, 500);
     }
-    function updateRoutines(updater) {
-      setRoutines((prev) => {
+    function updateRoutineData(updater) {
+      setRoutineData((prev) => {
         const next = updater(prev);
-        persistRoutines(next);
+        persistRoutineData(next);
         return next;
       });
     }
     function addRoutine() {
       const name = manageNewRoutineName.trim();
       if (!name) return;
-      updateRoutines((prev) => [...prev, { id: genId("routine"), name, exercises: [] }]);
+      updateRoutineData((prev) => ({ ...prev, routineList: [...prev.routineList, { id: genId("routine"), name }] }));
       setManageNewRoutineName("");
     }
     function deleteRoutine(routineId) {
-      updateRoutines((prev) => prev.filter((r) => r.id !== routineId));
+      // Only removes this routine's membership rows -- movements themselves
+      // are never deleted here. A movement that loses its last membership
+      // simply has zero routineExercises rows left, which is exactly what
+      // "Unassigned" means; it stays editable/reassignable in Manage.
+      updateRoutineData((prev) => ({
+        ...prev,
+        routineList: prev.routineList.filter((r) => r.id !== routineId),
+        routineExercises: prev.routineExercises.filter((m) => m.routineId !== routineId)
+      }));
       if (activeRoutineId === routineId) setActiveRoutineId(null);
       setConfirmDelete(null);
     }
     function renameRoutine(routineId, name) {
       if (!name.trim()) return;
-      updateRoutines((prev) => prev.map((r) => r.id === routineId ? { ...r, name: name.trim() } : r));
+      updateRoutineData((prev) => ({ ...prev, routineList: prev.routineList.map((r) => r.id === routineId ? { ...r, name: name.trim() } : r) }));
       setManageRenaming(null);
     }
     function addExercise(routineId) {
       const name = (manageNewExName[routineId] || "").trim();
       if (!name) return;
       const unit = manageNewExUnit[routineId] || "seconds";
-      updateRoutines((prev) => prev.map((r) => r.id === routineId ? { ...r, exercises: [...r.exercises, { id: genId("ex"), name, unit, archived: false }] } : r));
+      updateRoutineData((prev) => {
+        const newEx = { id: genId("ex"), name, unit, archived: false };
+        const inRoutine = prev.routineExercises.filter((m) => m.routineId === routineId);
+        const sortOrder = inRoutine.length ? Math.max(...inRoutine.map((m) => m.sortOrder)) + 1 : 0;
+        return {
+          ...prev,
+          exercises: [...prev.exercises, newEx],
+          routineExercises: [...prev.routineExercises, { routineId, exerciseId: newEx.id, sortOrder }]
+        };
+      });
       setManageNewExName((prev) => ({ ...prev, [routineId]: "" }));
     }
-    function renameExercise(routineId, exId, name) {
+    function renameExercise(exId, name) {
       if (!name.trim()) return;
-      updateRoutines((prev) => prev.map((r) => r.id === routineId ? { ...r, exercises: r.exercises.map((ex) => ex.id === exId ? { ...ex, name: name.trim() } : ex) } : r));
+      updateRoutineData((prev) => ({ ...prev, exercises: prev.exercises.map((ex) => ex.id === exId ? { ...ex, name: name.trim() } : ex) }));
       setManageRenaming(null);
     }
-    function toggleArchive(routineId, exId, archived) {
-      updateRoutines((prev) => prev.map((r) => r.id === routineId ? { ...r, exercises: r.exercises.map((ex) => ex.id === exId ? { ...ex, archived } : ex) } : r));
+    function toggleArchive(exId, archived) {
+      // Global on the movement -- archiving hides it from the Log screen
+      // under every routine it belongs to, not just one.
+      updateRoutineData((prev) => ({ ...prev, exercises: prev.exercises.map((ex) => ex.id === exId ? { ...ex, archived } : ex) }));
     }
-    function toggleUnit(routineId, exId) {
-      updateRoutines((prev) => prev.map((r) => r.id === routineId ? { ...r, exercises: r.exercises.map((ex) => ex.id === exId ? { ...ex, unit: (ex.unit || "seconds") === "seconds" ? "reps" : "seconds" } : ex) } : r));
+    function toggleUnit(exId) {
+      updateRoutineData((prev) => ({ ...prev, exercises: prev.exercises.map((ex) => ex.id === exId ? { ...ex, unit: (ex.unit || "seconds") === "seconds" ? "reps" : "seconds" } : ex) }));
     }
     function moveExercise(routineId, exId, direction) {
-      updateRoutines((prev) => prev.map((r) => {
-        if (r.id !== routineId) return r;
-        const idx = r.exercises.findIndex((ex) => ex.id === exId);
+      updateRoutineData((prev) => {
+        const inRoutine = prev.routineExercises.filter((m) => m.routineId === routineId).sort((a, b) => a.sortOrder - b.sortOrder);
+        const idx = inRoutine.findIndex((m) => m.exerciseId === exId);
         const swapIdx = idx + direction;
-        if (idx < 0 || swapIdx < 0 || swapIdx >= r.exercises.length) return r;
-        const exercises = [...r.exercises];
-        [exercises[idx], exercises[swapIdx]] = [exercises[swapIdx], exercises[idx]];
-        return { ...r, exercises };
-      }));
+        if (idx < 0 || swapIdx < 0 || swapIdx >= inRoutine.length) return prev;
+        const a = inRoutine[idx], b = inRoutine[swapIdx];
+        return {
+          ...prev,
+          routineExercises: prev.routineExercises.map((m) => {
+            if (m.routineId !== routineId) return m;
+            if (m.exerciseId === a.exerciseId) return { ...m, sortOrder: b.sortOrder };
+            if (m.exerciseId === b.exerciseId) return { ...m, sortOrder: a.sortOrder };
+            return m;
+          })
+        };
+      });
     }
-    function moveExerciseToRoutine(fromRoutineId, exId, toRoutineId) {
-      if (!toRoutineId || toRoutineId === fromRoutineId) return;
-      updateRoutines((prev) => {
-        const source = prev.find((r) => r.id === fromRoutineId);
-        const ex = source && source.exercises.find((e) => e.id === exId);
-        if (!ex) return prev;
-        return prev.map((r) => {
-          if (r.id === fromRoutineId) return { ...r, exercises: r.exercises.filter((e) => e.id !== exId) };
-          if (r.id === toRoutineId) return { ...r, exercises: [...r.exercises, ex] };
-          return r;
+    // Saves the FULL desired set of routine memberships for one movement at
+    // once (what the checkbox list in ExerciseEditInline collects), diffed
+    // against its current memberships -- adds get a fresh sortOrder within
+    // that routine, removals just drop their join row.
+    function setExerciseRoutineMemberships(exId, routineIds) {
+      updateRoutineData((prev) => {
+        const currentIds = new Set(prev.routineExercises.filter((m) => m.exerciseId === exId).map((m) => m.routineId));
+        const desiredIds = new Set(routineIds);
+        const kept = prev.routineExercises.filter((m) => m.exerciseId !== exId || desiredIds.has(m.routineId));
+        const toAdd = routineIds.filter((rid) => !currentIds.has(rid));
+        const added = toAdd.map((rid) => {
+          const inRoutine = kept.filter((m) => m.routineId === rid);
+          const sortOrder = inRoutine.length ? Math.max(...inRoutine.map((m) => m.sortOrder)) + 1 : 0;
+          return { routineId: rid, exerciseId: exId, sortOrder };
         });
+        return { ...prev, routineExercises: [...kept, ...added] };
       });
     }
     const entriesSaveTimeout = useRef(null);
@@ -2418,7 +2464,8 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
         toggleArchive,
         toggleUnit,
         moveExercise,
-        moveExerciseToRoutine,
+        setExerciseRoutineMemberships,
+        unassignedExercises,
         manageNewExName,
         setManageNewExName,
         manageNewExUnit,
@@ -2472,10 +2519,20 @@ Totals: ${totals.protein}g protein, ${totals.calories}kcal, ${totals.fat}g fat, 
     const [val, setVal] = useState(initial);
     return /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-1" }, /* @__PURE__ */ React.createElement("input", { autoFocus: true, type: "text", value: val, onChange: (e) => setVal(e.target.value), className: "flex-1 bg-neutral-950 border border-orange-500 rounded-md px-2 py-1 text-sm text-neutral-100", style: { borderWidth: 1 } }), /* @__PURE__ */ React.createElement("button", { onClick: () => onSave(val), className: "text-emerald-400 p-1" }, /* @__PURE__ */ React.createElement(Check, { size: 16 })), /* @__PURE__ */ React.createElement("button", { onClick: onCancel, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(X, { size: 16 })));
   }
-  function ExerciseEditInline({ initial, initialRoutineId, routines, onSave, onCancel }) {
+  function ExerciseEditInline({ initial, initialRoutineIds, routines, onSave, onCancel }) {
     const [name, setName] = useState(initial);
-    const [routineId, setRoutineId] = useState(initialRoutineId);
-    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-1.5 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("input", { autoFocus: true, type: "text", value: name, onChange: (e) => setName(e.target.value), className: "flex-1 bg-neutral-950 border border-orange-500 rounded-md px-2 py-1 text-sm text-neutral-100", style: { borderWidth: 1 } }), /* @__PURE__ */ React.createElement("button", { onClick: () => onSave(name, routineId), className: "text-emerald-400 p-1" }, /* @__PURE__ */ React.createElement(Check, { size: 16 })), /* @__PURE__ */ React.createElement("button", { onClick: onCancel, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(X, { size: 16 }))), /* @__PURE__ */ React.createElement("select", { value: routineId, onChange: (e) => setRoutineId(e.target.value), className: "w-full bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-sm text-neutral-100" }, routines.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.id, value: r.id }, r.name))));
+    const [routineIds, setRoutineIds] = useState(initialRoutineIds);
+    function toggleRoutine(id) {
+      setRoutineIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+    }
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-1.5 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("input", { autoFocus: true, type: "text", value: name, onChange: (e) => setName(e.target.value), className: "flex-1 bg-neutral-950 border border-orange-500 rounded-md px-2 py-1 text-sm text-neutral-100", style: { borderWidth: 1 } }), /* @__PURE__ */ React.createElement("button", { onClick: () => onSave(name, routineIds), className: "text-emerald-400 p-1" }, /* @__PURE__ */ React.createElement(Check, { size: 16 })), /* @__PURE__ */ React.createElement("button", { onClick: onCancel, className: "text-neutral-400 p-1" }, /* @__PURE__ */ React.createElement(X, { size: 16 }))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5" }, routines.map((r) => {
+      const checked = routineIds.includes(r.id);
+      return /* @__PURE__ */ React.createElement("button", { key: r.id, type: "button", onClick: () => toggleRoutine(r.id), className: `px-2.5 py-1 rounded-full text-xs font-medium border ${checked ? "bg-orange-500 border-orange-500 text-neutral-950" : "bg-neutral-950 border-neutral-800 text-neutral-300"}` }, r.name);
+    })));
+  }
+  function UnassignedExercisesCard({ exercises, routines, renameExercise, toggleArchive, toggleUnit, setExerciseRoutineMemberships, manageRenaming, setManageRenaming }) {
+    if (!exercises.length) return null;
+    return /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold text-neutral-50" }, "Unassigned"), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-500" }, exercises.length, " movement", exercises.length === 1 ? "" : "s")), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-neutral-500 mb-2" }, "Not part of any routine \u2014 edit to add back."), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, exercises.map((ex) => /* @__PURE__ */ React.createElement("div", { key: ex.id, className: `flex items-center justify-between rounded-lg px-2 py-2 border border-neutral-800 ${ex.archived ? "bg-neutral-950/50" : "bg-neutral-950"}` }, manageRenaming === `ex-${ex.id}` ? /* @__PURE__ */ React.createElement(ExerciseEditInline, { initial: ex.name, initialRoutineIds: [], routines, onSave: (name, routineIds) => { renameExercise(ex.id, name); setExerciseRoutineMemberships(ex.id, routineIds); }, onCancel: () => setManageRenaming(null) }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: `text-sm truncate ${ex.archived ? "text-neutral-600 line-through" : "text-neutral-200"}` }, ex.name), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => toggleUnit(ex.id), className: "text-[10px] font-semibold px-1.5 py-1 rounded-md bg-neutral-900 border border-neutral-800 text-neutral-400 uppercase" }, (ex.unit || "seconds") === "reps" ? "Reps" : "Time"), /* @__PURE__ */ React.createElement("button", { onClick: () => setManageRenaming(`ex-${ex.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), ex.archived ? /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchive(ex.id, false), className: "text-emerald-400 p-1.5 flex items-center gap-1 text-xs font-medium" }, /* @__PURE__ */ React.createElement(Eye, { size: 13 }), " Show") : /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchive(ex.id, true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(EyeOff, { size: 13 }))))))));
   }
   function LogRoutine(props) {
     const {
@@ -3147,7 +3204,8 @@ function NutritionView(props) {
       toggleArchive,
       toggleUnit,
       moveExercise,
-      moveExerciseToRoutine,
+      setExerciseRoutineMemberships,
+      unassignedExercises,
       manageNewExName,
       setManageNewExName,
       manageNewExUnit,
@@ -3185,8 +3243,8 @@ function NutritionView(props) {
     return /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, routines.map((r) => {
       const isExpanded = expandedRoutine === r.id;
       const liveCount = r.exercises.filter((ex) => !ex.archived).length;
-      return /* @__PURE__ */ React.createElement("div", { key: r.id, className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, manageRenaming === `routine-${r.id}` ? /* @__PURE__ */ React.createElement(RenameInline, { initial: r.name, onSave: (name) => renameRoutine(r.id, name), onCancel: () => setManageRenaming(null) }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => setExpandedRoutine((prev) => prev === r.id ? null : r.id), className: "flex items-center gap-2 min-w-0 flex-1 text-left" }, isExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 16, className: "text-neutral-400 shrink-0" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 16, className: "text-neutral-400 shrink-0" }), /* @__PURE__ */ React.createElement("span", { className: "font-bold text-neutral-50 truncate" }, r.name), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-500 shrink-0" }, liveCount, " movement", liveCount === 1 ? "" : "s")), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setManageRenaming(`routine-${r.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 14 })), confirmDelete === `routine-${r.id}` ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => deleteRoutine(r.id), className: "text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md" }, "Confirm"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDelete(null), className: "text-neutral-400 text-xs px-2 py-1 bg-neutral-800 rounded-md" }, "Cancel")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDelete(`routine-${r.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }))))), isExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, r.exercises.map((ex, idx) => /* @__PURE__ */ React.createElement("div", { key: ex.id, className: `flex items-center justify-between rounded-lg px-2 py-2 border border-neutral-800 ${ex.archived ? "bg-neutral-950/50" : "bg-neutral-950"}` }, manageRenaming === `ex-${ex.id}` ? /* @__PURE__ */ React.createElement(ExerciseEditInline, { initial: ex.name, initialRoutineId: r.id, routines, onSave: (name, toRoutineId) => { renameExercise(r.id, ex.id, name); if (toRoutineId !== r.id) moveExerciseToRoutine(r.id, ex.id, toRoutineId); }, onCancel: () => setManageRenaming(null) }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col shrink-0 text-neutral-500" }, /* @__PURE__ */ React.createElement("button", { onClick: () => moveExercise(r.id, ex.id, -1), disabled: idx === 0, className: idx === 0 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronUp, { size: 14 })), /* @__PURE__ */ React.createElement("button", { onClick: () => moveExercise(r.id, ex.id, 1), disabled: idx === r.exercises.length - 1, className: idx === r.exercises.length - 1 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronDown, { size: 14 }))), /* @__PURE__ */ React.createElement("span", { className: `text-sm truncate ${ex.archived ? "text-neutral-600 line-through" : "text-neutral-200"}` }, ex.name)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => toggleUnit(r.id, ex.id), className: "text-[10px] font-semibold px-1.5 py-1 rounded-md bg-neutral-900 border border-neutral-800 text-neutral-400 uppercase" }, (ex.unit || "seconds") === "reps" ? "Reps" : "Time"), /* @__PURE__ */ React.createElement("button", { onClick: () => setManageRenaming(`ex-${ex.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), ex.archived ? /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchive(r.id, ex.id, false), className: "text-emerald-400 p-1.5 flex items-center gap-1 text-xs font-medium" }, /* @__PURE__ */ React.createElement(Eye, { size: 13 }), " Show") : /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchive(r.id, ex.id, true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(EyeOff, { size: 13 }))))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-3" }, /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "New exercise", value: manageNewExName[r.id] || "", onChange: (e) => setManageNewExName((prev) => ({ ...prev, [r.id]: e.target.value })), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("div", { className: "flex shrink-0 rounded-lg overflow-hidden border border-neutral-800" }, ["seconds", "reps"].map((u) => /* @__PURE__ */ React.createElement("button", { key: u, onClick: () => setManageNewExUnit((prev) => ({ ...prev, [r.id]: u })), className: `px-2 py-2 text-[11px] font-semibold uppercase ${(manageNewExUnit[r.id] || "seconds") === u ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 text-neutral-400"}` }, u === "reps" ? "Reps" : "Time"))), /* @__PURE__ */ React.createElement("button", { onClick: () => addExercise(r.id), className: "w-10 h-10 shrink-0 flex items-center justify-center rounded-lg bg-neutral-800 text-neutral-200" }, /* @__PURE__ */ React.createElement(Plus, { size: 16 })))));
-    }), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-300 mb-2" }, "New routine"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "e.g. Leg Day", value: manageNewRoutineName, onChange: (e) => setManageNewRoutineName(e.target.value), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: addRoutine, className: "px-4 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Add"))), /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-200 pt-2" }, "Foods"), [...categories.filter((c) => !c.archived).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)), { id: UNCATEGORIZED_ID, name: "Uncategorized" }].map((category) => {
+      return /* @__PURE__ */ React.createElement("div", { key: r.id, className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, manageRenaming === `routine-${r.id}` ? /* @__PURE__ */ React.createElement(RenameInline, { initial: r.name, onSave: (name) => renameRoutine(r.id, name), onCancel: () => setManageRenaming(null) }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => setExpandedRoutine((prev) => prev === r.id ? null : r.id), className: "flex items-center gap-2 min-w-0 flex-1 text-left" }, isExpanded ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 16, className: "text-neutral-400 shrink-0" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 16, className: "text-neutral-400 shrink-0" }), /* @__PURE__ */ React.createElement("span", { className: "font-bold text-neutral-50 truncate" }, r.name), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-neutral-500 shrink-0" }, liveCount, " movement", liveCount === 1 ? "" : "s")), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setManageRenaming(`routine-${r.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 14 })), confirmDelete === `routine-${r.id}` ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => deleteRoutine(r.id), className: "text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md" }, "Confirm"), /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDelete(null), className: "text-neutral-400 text-xs px-2 py-1 bg-neutral-800 rounded-md" }, "Cancel")) : /* @__PURE__ */ React.createElement("button", { onClick: () => setConfirmDelete(`routine-${r.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Trash2, { size: 14 }))))), isExpanded && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, r.exercises.map((ex, idx) => /* @__PURE__ */ React.createElement("div", { key: ex.id, className: `flex items-center justify-between rounded-lg px-2 py-2 border border-neutral-800 ${ex.archived ? "bg-neutral-950/50" : "bg-neutral-950"}` }, manageRenaming === `ex-${ex.id}` ? /* @__PURE__ */ React.createElement(ExerciseEditInline, { initial: ex.name, initialRoutineIds: routines.filter((rt) => rt.exercises.some((e2) => e2.id === ex.id)).map((rt) => rt.id), routines, onSave: (name, routineIds) => { renameExercise(ex.id, name); setExerciseRoutineMemberships(ex.id, routineIds); }, onCancel: () => setManageRenaming(null) }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col shrink-0 text-neutral-500" }, /* @__PURE__ */ React.createElement("button", { onClick: () => moveExercise(r.id, ex.id, -1), disabled: idx === 0, className: idx === 0 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronUp, { size: 14 })), /* @__PURE__ */ React.createElement("button", { onClick: () => moveExercise(r.id, ex.id, 1), disabled: idx === r.exercises.length - 1, className: idx === r.exercises.length - 1 ? "opacity-30" : "" }, /* @__PURE__ */ React.createElement(ChevronDown, { size: 14 }))), /* @__PURE__ */ React.createElement("span", { className: `text-sm truncate ${ex.archived ? "text-neutral-600 line-through" : "text-neutral-200"}` }, ex.name)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => toggleUnit(ex.id), className: "text-[10px] font-semibold px-1.5 py-1 rounded-md bg-neutral-900 border border-neutral-800 text-neutral-400 uppercase" }, (ex.unit || "seconds") === "reps" ? "Reps" : "Time"), /* @__PURE__ */ React.createElement("button", { onClick: () => setManageRenaming(`ex-${ex.id}`), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(Pencil, { size: 13 })), ex.archived ? /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchive(ex.id, false), className: "text-emerald-400 p-1.5 flex items-center gap-1 text-xs font-medium" }, /* @__PURE__ */ React.createElement(Eye, { size: 13 }), " Show") : /* @__PURE__ */ React.createElement("button", { onClick: () => toggleArchive(ex.id, true), className: "text-neutral-400 p-1.5" }, /* @__PURE__ */ React.createElement(EyeOff, { size: 13 }))))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-3" }, /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "New exercise", value: manageNewExName[r.id] || "", onChange: (e) => setManageNewExName((prev) => ({ ...prev, [r.id]: e.target.value })), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("div", { className: "flex shrink-0 rounded-lg overflow-hidden border border-neutral-800" }, ["seconds", "reps"].map((u) => /* @__PURE__ */ React.createElement("button", { key: u, onClick: () => setManageNewExUnit((prev) => ({ ...prev, [r.id]: u })), className: `px-2 py-2 text-[11px] font-semibold uppercase ${(manageNewExUnit[r.id] || "seconds") === u ? "bg-orange-500 text-neutral-950" : "bg-neutral-950 text-neutral-400"}` }, u === "reps" ? "Reps" : "Time"))), /* @__PURE__ */ React.createElement("button", { onClick: () => addExercise(r.id), className: "w-10 h-10 shrink-0 flex items-center justify-center rounded-lg bg-neutral-800 text-neutral-200" }, /* @__PURE__ */ React.createElement(Plus, { size: 16 })))));
+    }), /* @__PURE__ */ React.createElement(UnassignedExercisesCard, { exercises: unassignedExercises, routines, renameExercise, toggleArchive, toggleUnit, setExerciseRoutineMemberships, manageRenaming, setManageRenaming }), /* @__PURE__ */ React.createElement("div", { className: "bg-neutral-900 border border-neutral-800 rounded-2xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-300 mb-2" }, "New routine"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "e.g. Leg Day", value: manageNewRoutineName, onChange: (e) => setManageNewRoutineName(e.target.value), className: "flex-1 bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-200" }), /* @__PURE__ */ React.createElement("button", { onClick: addRoutine, className: "px-4 rounded-lg bg-orange-500 text-neutral-950 text-sm font-semibold" }, "Add"))), /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-neutral-200 pt-2" }, "Foods"), [...categories.filter((c) => !c.archived).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)), { id: UNCATEGORIZED_ID, name: "Uncategorized" }].map((category) => {
       const categoryFoods = foods.filter((f) => f.category === category.id || !categories.find((c) => c.id === f.category) && category.id === UNCATEGORIZED_ID).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
       if (categoryFoods.length === 0) return null;
       const isExpanded = expandedFoodCategoryManage === category.id;
