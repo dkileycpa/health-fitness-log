@@ -1577,15 +1577,22 @@ function parseSleepInput(raw) {
       routinesSaveTimeout.current = setTimeout(async () => {
         setSaveState("saving");
         try {
-          const routineRows = next.routineList.map((r, i) => [r.id, r.name, i]);
-          const exerciseRows = next.exercises.map((ex) => [ex.id, ex.name, ex.unit || "seconds", ex.archived ? "TRUE" : "FALSE"]);
-          const membershipRows = next.routineExercises.map((m) => [m.routineId, m.exerciseId, m.sortOrder]);
-          await api.clearRange("Routines!A2:C10000");
-          await api.clearRange("Exercises!A2:D10000");
-          await api.clearRange("RoutineExercises!A2:C10000");
-          if (routineRows.length) await api.updateRange("Routines!A2", routineRows);
-          if (exerciseRows.length) await api.updateRange("Exercises!A2", exerciseRows);
-          if (membershipRows.length) await api.updateRange("RoutineExercises!A2", membershipRows);
+          // Pad each sheet's rows with blanks out to a fixed floor before writing.
+          // This lets a single PUT overwrite the sheet in one call -- no separate
+          // clear step, so there's no window where a sheet sits emptied while the
+          // real data hasn't landed yet. Worst case on an interruption is now "this
+          // sheet didn't get today's edit" (stale but intact), never "wiped".
+          const padRows = (rows, width, minLength) => {
+            const padded = rows.slice();
+            while (padded.length < minLength) padded.push(new Array(width).fill(""));
+            return padded;
+          };
+          const routineRows = padRows(next.routineList.map((r, i) => [r.id, r.name, i]), 3, 300);
+          const exerciseRows = padRows(next.exercises.map((ex) => [ex.id, ex.name, ex.unit || "seconds", ex.archived ? "TRUE" : "FALSE"]), 4, 300);
+          const membershipRows = padRows(next.routineExercises.map((m) => [m.routineId, m.exerciseId, m.sortOrder]), 3, 500);
+          await api.updateRange("Routines!A2", routineRows);
+          await api.updateRange("Exercises!A2", exerciseRows);
+          await api.updateRange("RoutineExercises!A2", membershipRows);
           setSaveState("saved");
           setTimeout(() => setSaveState("idle"), 1200);
         } catch (e) {
