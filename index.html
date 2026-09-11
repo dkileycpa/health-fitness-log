@@ -1232,6 +1232,7 @@ function parseSleepInput(raw) {
     const pendingTokenResolvers = useRef([]);
     const [tokenClient, setTokenClient] = useState(null);
     const [checkingSilentAuth, setCheckingSilentAuth] = useState(true);
+    const [errorMsg, setErrorMsg] = useState(null);
     const entriesMaxRowsRef = useRef(50);
     const nutritionEntriesMaxRowsRef = useRef(50);
     const measurementsMaxRowsRef = useRef(50);
