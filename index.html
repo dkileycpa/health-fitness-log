@@ -245,6 +245,17 @@
     { key: "calories", label: "Calories", unit: "kcal", decimals: 0, step: "1", group: "nutrition" }
   ];
   const TREND_PALETTE = ["#f97316", "#22d3ee", "#a78bfa", "#34d399", "#f472b6", "#fbbf24", "#60a5fa", "#fb7185"];
+  // Pads a rows array with blank rows out to minLength before a full-range
+  // overwrite write. Lets a single PUT replace a sheet's entire contents in
+  // one call -- no separate clear step, so there's never a window where the
+  // sheet sits emptied while the real data hasn't landed yet. Worst case on
+  // an interrupted/rate-limited write is now "this sheet is one edit stale",
+  // never "this sheet got wiped".
+  function padRows(rows, width, minLength) {
+    const padded = rows.slice();
+    while (padded.length < minLength) padded.push(new Array(width).fill(""));
+    return padded;
+  }
   function computeFoodNutrition(food, grams) {
     const factor = grams / 100;
     return {
@@ -1221,7 +1232,9 @@ function parseSleepInput(raw) {
     const pendingTokenResolvers = useRef([]);
     const [tokenClient, setTokenClient] = useState(null);
     const [checkingSilentAuth, setCheckingSilentAuth] = useState(true);
-    const [errorMsg, setErrorMsg] = useState(null);
+    const entriesMaxRowsRef = useRef(50);
+    const nutritionEntriesMaxRowsRef = useRef(50);
+    const measurementsMaxRowsRef = useRef(50);
     const [loading, setLoading] = useState(false);
     const [saveState, setSaveState] = useState("idle");
     const [view, setView] = useState("log");
@@ -1431,6 +1444,9 @@ function parseSleepInput(raw) {
         const categoryRows = await api.getRange("FoodCategories!A2:D10000");
         const measurementRows = await api.getRange("Measurements!A2:F10000");
         const nutritionEntryRows = await api.getRange("NutritionEntries!A2:K10000");
+        entriesMaxRowsRef.current = Math.max(entriesMaxRowsRef.current, entryRows.length + 20);
+        nutritionEntriesMaxRowsRef.current = Math.max(nutritionEntriesMaxRowsRef.current, nutritionEntryRows.length + 20);
+        measurementsMaxRowsRef.current = Math.max(measurementsMaxRowsRef.current, measurementRows.length + 20);
         // Data/instrumentation layer only -- read, parse, store in state.
         // Nothing renders this yet and nothing here touches CoachExport.
         let loadedSleepDerived = [];
@@ -1577,16 +1593,6 @@ function parseSleepInput(raw) {
       routinesSaveTimeout.current = setTimeout(async () => {
         setSaveState("saving");
         try {
-          // Pad each sheet's rows with blanks out to a fixed floor before writing.
-          // This lets a single PUT overwrite the sheet in one call -- no separate
-          // clear step, so there's no window where a sheet sits emptied while the
-          // real data hasn't landed yet. Worst case on an interruption is now "this
-          // sheet didn't get today's edit" (stale but intact), never "wiped".
-          const padRows = (rows, width, minLength) => {
-            const padded = rows.slice();
-            while (padded.length < minLength) padded.push(new Array(width).fill(""));
-            return padded;
-          };
           const routineRows = padRows(next.routineList.map((r, i) => [r.id, r.name, i]), 3, 300);
           const exerciseRows = padRows(next.exercises.map((ex) => [ex.id, ex.name, ex.unit || "seconds", ex.archived ? "TRUE" : "FALSE"]), 4, 300);
           const membershipRows = padRows(next.routineExercises.map((m) => [m.routineId, m.exerciseId, m.sortOrder]), 3, 500);
@@ -1703,9 +1709,9 @@ function parseSleepInput(raw) {
       entriesSaveTimeout.current = setTimeout(async () => {
         setSaveState("saving");
         try {
-          const rows = nextEntries.map((e) => [e.id, e.routineId, e.exerciseId, e.band, e.tut, e.note || "", e.timestamp, e.sessionId || ""]);
-          await api.clearRange("Entries!A2:H10000");
-          if (rows.length) await api.updateRange("Entries!A2", rows);
+          entriesMaxRowsRef.current = Math.max(entriesMaxRowsRef.current, nextEntries.length + 20);
+          const rows = padRows(nextEntries.map((e) => [e.id, e.routineId, e.exerciseId, e.band, e.tut, e.note || "", e.timestamp, e.sessionId || ""]), 8, entriesMaxRowsRef.current);
+          await api.updateRange("Entries!A2", rows);
           setSaveState("saved");
           setTimeout(() => setSaveState("idle"), 1200);
         } catch (e) {
@@ -1719,12 +1725,11 @@ function parseSleepInput(raw) {
       if (overridesSaveTimeout.current) clearTimeout(overridesSaveTimeout.current);
       overridesSaveTimeout.current = setTimeout(async () => {
         try {
-          const rows = Object.entries(nextOverrides).map(([key, v]) => {
+          const rows = padRows(Object.entries(nextOverrides).map(([key, v]) => {
             const [date, routineId] = key.split("|");
             return [date, routineId, v.start || "", v.finish || ""];
-          });
-          await api.clearRange("SessionOverrides!A2:D10000");
-          if (rows.length) await api.updateRange("SessionOverrides!A2", rows);
+          }), 4, 300);
+          await api.updateRange("SessionOverrides!A2", rows);
         } catch (e) {
           setErrorMsg(String(e));
         }
@@ -1744,9 +1749,8 @@ function parseSleepInput(raw) {
         setSaveState("saving");
         try {
           const nz = (v) => v === null || v === void 0 ? "" : v;
-          const rows = nextMetrics.slice().sort((a, b) => a.date.localeCompare(b.date)).map((d) => [d.date, nz(d.weight), nz(d.sleep), nz(d.sleepScore), nz(d.readiness), nz(d.hrv), nz(d.rhr), nz(d.steps), nz(d.protein), nz(d.calories), nz(d.note), nz(d.sleepHrLow), nz(d.sleepHrAvg), nz(d.fatG), nz(d.carbsG)]);
-          await api.clearRange("DailyMetrics!A2:O10000");
-          if (rows.length) await api.updateRange("DailyMetrics!A2", rows);
+          const rows = padRows(nextMetrics.slice().sort((a, b) => a.date.localeCompare(b.date)).map((d) => [d.date, nz(d.weight), nz(d.sleep), nz(d.sleepScore), nz(d.readiness), nz(d.hrv), nz(d.rhr), nz(d.steps), nz(d.protein), nz(d.calories), nz(d.note), nz(d.sleepHrLow), nz(d.sleepHrAvg), nz(d.fatG), nz(d.carbsG)]), 15, 500);
+          await api.updateRange("DailyMetrics!A2", rows);
           setSaveState("saved");
           setTimeout(() => setSaveState("idle"), 1200);
         } catch (e) {
@@ -1813,9 +1817,9 @@ function parseSleepInput(raw) {
         setSaveState("saving");
         try {
           const nz = (v) => v === null || v === void 0 ? "" : v;
-          const rows = next.slice().sort((a, b) => a.date.localeCompare(b.date)).map((m) => [m.date, nz(m.waistNaval), nz(m.waistBand), nz(m.shoulders), nz(m.chest), nz(m.hips)]);
-          await api.clearRange("Measurements!A2:F10000");
-          if (rows.length) await api.updateRange("Measurements!A2", rows);
+          measurementsMaxRowsRef.current = Math.max(measurementsMaxRowsRef.current, next.length + 20);
+          const rows = padRows(next.slice().sort((a, b) => a.date.localeCompare(b.date)).map((m) => [m.date, nz(m.waistNaval), nz(m.waistBand), nz(m.shoulders), nz(m.chest), nz(m.hips)]), 6, measurementsMaxRowsRef.current);
+          await api.updateRange("Measurements!A2", rows);
           setSaveState("saved");
           setTimeout(() => setSaveState("idle"), 1200);
         } catch (e) {
@@ -1961,9 +1965,8 @@ function parseSleepInput(raw) {
       foodsSaveTimeout.current = setTimeout(async () => {
         setSaveState("saving");
         try {
-          const rows = nextFoods.map((f) => [f.id, f.name, f.category, f.proteinPer100g, f.caloriesPer100g, f.fatPer100g || 0, f.carbsPer100g || 0, f.defaultGrams, f.defaultUnit, f.sortOrder || 0, f.archived ? "TRUE" : "FALSE"]);
-          await api.clearRange("Foods!A2:K10000");
-          if (rows.length) await api.updateRange("Foods!A2", rows);
+          const rows = padRows(nextFoods.map((f) => [f.id, f.name, f.category, f.proteinPer100g, f.caloriesPer100g, f.fatPer100g || 0, f.carbsPer100g || 0, f.defaultGrams, f.defaultUnit, f.sortOrder || 0, f.archived ? "TRUE" : "FALSE"]), 11, 300);
+          await api.updateRange("Foods!A2", rows);
           setSaveState("saved");
           setTimeout(() => setSaveState("idle"), 1200);
         } catch (e) {
@@ -2025,9 +2028,8 @@ function parseSleepInput(raw) {
       categoriesSaveTimeout.current = setTimeout(async () => {
         setSaveState("saving");
         try {
-          const rows = nextCategories.map((c) => [c.id, c.name, c.sortOrder || 0, c.archived ? "TRUE" : "FALSE"]);
-          await api.clearRange("FoodCategories!A2:D10000");
-          if (rows.length) await api.updateRange("FoodCategories!A2", rows);
+          const rows = padRows(nextCategories.map((c) => [c.id, c.name, c.sortOrder || 0, c.archived ? "TRUE" : "FALSE"]), 4, 300);
+          await api.updateRange("FoodCategories!A2", rows);
           setSaveState("saved");
           setTimeout(() => setSaveState("idle"), 1200);
         } catch (e) {
@@ -2080,9 +2082,9 @@ function parseSleepInput(raw) {
         setSaveState("saving");
         try {
           const nz2 = (v) => v === null || v === void 0 ? "" : v;
-          const rows = nextEntries.map((e) => [e.id, e.date, e.foodId || "", e.amountGrams || "", e.note || "", e.timestamp, e.adhocName || "", nz2(e.adhocProtein), nz2(e.adhocCalories), nz2(e.adhocFat), nz2(e.adhocCarbs)]);
-          await api.clearRange("NutritionEntries!A2:K10000");
-          if (rows.length) await api.updateRange("NutritionEntries!A2", rows);
+          nutritionEntriesMaxRowsRef.current = Math.max(nutritionEntriesMaxRowsRef.current, nextEntries.length + 20);
+          const rows = padRows(nextEntries.map((e) => [e.id, e.date, e.foodId || "", e.amountGrams || "", e.note || "", e.timestamp, e.adhocName || "", nz2(e.adhocProtein), nz2(e.adhocCalories), nz2(e.adhocFat), nz2(e.adhocCarbs)]), 11, nutritionEntriesMaxRowsRef.current);
+          await api.updateRange("NutritionEntries!A2", rows);
           setSaveState("saved");
           setTimeout(() => setSaveState("idle"), 1200);
         } catch (e) {
